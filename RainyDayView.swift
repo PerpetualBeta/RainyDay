@@ -12,7 +12,7 @@ import WebKit
 /// fill the screen, get out of the way. All animation, physics, and
 /// rendering live in the WebGL context managed by the JS side.
 @objc(RainyDayView)
-public final class RainyDayView: ScreenSaverView {
+public final class RainyDayView: ScreenSaverView, WKNavigationDelegate {
 
     private var webView: WKWebView!
 
@@ -22,12 +22,14 @@ public final class RainyDayView: ScreenSaverView {
         // animateOneFrame to fire frequently. Setting a long interval
         // keeps macOS from forcing redraws.
         animationTimeInterval = 1.0
+        rdLog("init(frame:isPreview:) — frame=\(frame) preview=\(isPreview)")
         configureWebView()
     }
 
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
         animationTimeInterval = 1.0
+        rdLog("init(coder:)")
         configureWebView()
     }
 
@@ -41,10 +43,20 @@ public final class RainyDayView: ScreenSaverView {
 
         webView = WKWebView(frame: bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
         // Don't paint the WebView's default white background — we want the
         // canvas itself to be the only thing rendered.
         webView.setValue(false, forKey: "drawsBackground")
+        // Keep the WebContent process at foreground priority. Without this
+        // SPI, legacyScreenSaver's host context flags the WebView as
+        // background and macOS aggressively suspends WebContent (observed
+        // 2026-05-08 — `markAllLayersVolatile` immediately on launch,
+        // WebGL never starts, screen stays black). The setValue-via-KVC
+        // form works on macOS 14+; the symbol is private but stable
+        // (BetterDisplay, Yabai, Tampermonkey-for-Safari all rely on it).
+        webView.setValue(true, forKey: "_alwaysRunsAtForegroundPriority")
         addSubview(webView)
+        rdLog("webView created, configured (foreground priority on)")
         loadIndexHTML()
     }
 
@@ -53,16 +65,33 @@ public final class RainyDayView: ScreenSaverView {
         // hosted by legacyScreenSaver, or to the test app's bundle when
         // hosted directly. Both contain `Resources/index.html`.
         let bundle = Bundle(for: type(of: self))
+        rdLog("bundle.bundlePath=\(bundle.bundlePath)")
         guard let indexURL = bundle.url(forResource: "index", withExtension: "html") else {
-            // No index.html — fail visibly with a black screen rather
-            // than crash. Should never happen if the bundle was built
-            // correctly.
+            rdLog("ERROR: index.html not found in bundle")
             return
         }
-        // allowingReadAccessTo must be the directory so loads of sibling
-        // resources (raindrop-fx.bundle.js) succeed.
         let resourcesDir = indexURL.deletingLastPathComponent()
+        rdLog("loadFileURL: \(indexURL.path)  readAccess=\(resourcesDir.path)")
         webView.loadFileURL(indexURL, allowingReadAccessTo: resourcesDir)
+    }
+
+    // MARK: - WKNavigationDelegate (diagnostics only)
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        rdLog("didFinish navigation — page loaded")
+    }
+
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        rdLog("didFail navigation: \(error.localizedDescription)")
+    }
+
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        rdLog("didFailProvisionalNavigation: \(error.localizedDescription)")
+    }
+
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        rdLog("WebContent process terminated — reloading")
+        loadIndexHTML()
     }
 
     // MARK: - ScreenSaverView
@@ -74,4 +103,33 @@ public final class RainyDayView: ScreenSaverView {
 
     public override var hasConfigureSheet: Bool { false }
     public override var configureSheet: NSWindow? { nil }
+}
+
+// MARK: - Diagnostic logging
+//
+// Writes timestamped lines to /tmp/rainyday.log. Always-on for now while
+// we're stabilising the saver-host integration; once the screensaver runs
+// reliably in legacyScreenSaver this can be gated on a defaults flag the
+// way ActiveSpace's logger is.
+
+private let rdLogPath = "/tmp/rainyday.log"
+private let rdLogQueue = DispatchQueue(label: "cc.jorviksoftware.RainyDay.log")
+private let rdLogFmt: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+    return f
+}()
+
+func rdLog(_ msg: String) {
+    let line = "\(rdLogFmt.string(from: Date()))  \(msg)\n"
+    rdLogQueue.async {
+        guard let data = line.data(using: .utf8) else { return }
+        if let fh = FileHandle(forWritingAtPath: rdLogPath) {
+            fh.seekToEndOfFile()
+            fh.write(data)
+            fh.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: rdLogPath, contents: data)
+        }
+    }
 }
