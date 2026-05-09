@@ -13,18 +13,34 @@
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
     <key>CFBundlePackageType</key>
-    <string>BNDL</string>
+    <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>RainyDay</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
-    <key>NSPrincipalClass</key>
-    <string>RainyDayView</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- Background utility: no Dock icon, no menu bar, no app-switcher
+         entry. The user experiences this app as a screensaver effect,
+         not as a foreground application. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <!-- Sparkle 2.x configuration. Suite-wide constants per the
+         conventions/sparkle-integration.md doc; only the feed URL
+         is per-app. -->
+    <key>SUFeedURL</key>
+    <string>https://jorviksoftware.cc/appcasts/rainyday.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>zVc7rs8EiLmlDAYpgaIItjnHtsCkvyVVub+I0/sSb3Q=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
 </dict>
 </plist>

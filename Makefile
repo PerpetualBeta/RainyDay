@@ -1,88 +1,87 @@
-# Rainy Day — rain-on-glass screensaver.
+# Rainy Day — rain-on-glass screensaver delivered as a regular .app.
 #
-# Embeds raindrop-fx (MIT, by SardineFish — vendored as
-# Resources/raindrop-fx.bundle.js) inside a WKWebView. The Swift side is
-# a thin host; all rendering lives in the JS bundle. See ATTRIBUTIONS.md.
+# A background (LSUIElement) app that polls system idle time and shows
+# a fullscreen WKWebView running raindrop-fx (MIT, SardineFish) when
+# the user has been idle past a threshold. Dismisses on any mouse/key
+# event.
 #
-# This Makefile drives both day-to-day dev iteration AND the release
-# pipeline. The release pipeline is delegated to the shared `release.mk`
-# include (in PerpetualBeta/jorvik-release); the dev targets below are
-# Rainy Day-specific and intentionally fast — no stamping, signing, or
-# notarisation.
+# Built as `Rainy Day.app`, not as a `.saver` — see the helper-process
+# and metal-port branches for prior screensaver-bundle attempts.
 
 # ─── Project identity ────────────────────────────────────────────────────────
 BUNDLE_NAME      := RainyDay
-BUNDLE_TYPE      := saver
-PRODUCT_NAME     := RainyDay.saver
+PRODUCT_NAME     := Rainy Day.app
 BUNDLE_ID        := cc.jorviksoftware.RainyDay
 BUILD_SYSTEM     := swiftc
 
-SWIFT_FRAMEWORKS := Cocoa ScreenSaver WebKit
-SWIFT_SOURCES    := RainyDayView.swift
+SWIFT_FRAMEWORKS := Cocoa WebKit CoreGraphics ServiceManagement
+SWIFT_SOURCES    := App/main.swift App/AppDelegate.swift App/ScreensaverWindow.swift \
+                    App/WallpaperWindow.swift \
+                    App/StatusItem.swift App/SettingsWindow.swift \
+                    App/HotkeyRecorder.swift App/HotkeyManager.swift \
+                    App/LockScreen.swift App/Screenshot.swift \
+                    App/BackgroundsStore.swift \
+                    App/SparkleDelegate.swift App/Log.swift \
+                    App/JorvikKit/JorvikAboutView.swift App/JorvikKit/JorvikWindowHelper.swift \
+                    App/JorvikKit/JorvikSettingsView.swift App/JorvikKit/JorvikUpdateChecker.swift
 
-PACKAGE_TYPE     := pkg
-ALSO_SHIP_PKG    := false
+EMBEDDED_FRAMEWORKS := Sparkle
+ENTITLEMENTS        := RainyDay.entitlements
+
+# Stable signing identity for dev. Same identity production uses; ad-hoc
+# (`-`) breaks TCC grants and the hardened runtime requirement Sparkle
+# imposes on its embedded XPC services.
+DEV_SIGN_IDENTITY := Developer ID Application: Jonthan Hollin (EG86BCGUE7)
 
 # Release.mk lives in a sibling repo (PerpetualBeta/jorvik-release).
+# It owns the production pipeline (stamping, notarisation, appcast
+# generation) and processes EMBEDDED_FRAMEWORKS for proper Sparkle
+# embedding/signing during release builds.
 include ../jorvik-release/release.mk
 
-# Override release.mk's default goal: a bare `make` should build a fast
-# local saver, not run a full release pipeline.
 .DEFAULT_GOAL := dev-build
+
+.PHONY: dev-build run icon
 
 # ─── Dev iteration targets ───────────────────────────────────────────────────
 
-.PHONY: dev-build dev-install testapp run icon
-
-LOCAL_BUNDLE := RainyDay.saver
-LOCAL_INSTALL_DIR := $(HOME)/Library/Screen Savers
-
-# Test app — same RainyDayView the .saver bundle uses, hosted in an
-# NSWindow harness in TestApp/. The test app is a regular .app so it
-# can find resources via Bundle.main.
-TESTAPP_SOURCES := TestApp/main.swift RainyDayView.swift
-
-# Single-arch fast build for local install.
 dev-build:
-	@echo "→ dev build (arm64 only, ad-hoc)"
-	@mkdir -p $(LOCAL_BUNDLE)/Contents/MacOS $(LOCAL_BUNDLE)/Contents/Resources
+	@echo "→ dev build (arm64, signed Developer ID, Sparkle embedded)"
+	@rm -rf "$(PRODUCT_NAME)"
+	@mkdir -p "$(PRODUCT_NAME)/Contents/MacOS" "$(PRODUCT_NAME)/Contents/Resources" "$(PRODUCT_NAME)/Contents/Frameworks"
 	swiftc -O -target arm64-apple-macos14.0 -sdk $(SDK) \
-		-framework Cocoa -framework ScreenSaver -framework WebKit \
-		-emit-library -module-name $(BUNDLE_NAME) \
-		-o $(LOCAL_BUNDLE)/Contents/MacOS/$(BUNDLE_NAME) \
+		$(addprefix -framework ,$(SWIFT_FRAMEWORKS)) \
+		-F . \
+		-Xlinker -rpath -Xlinker "@executable_path/../Frameworks" \
+		-module-name $(BUNDLE_NAME) \
+		-o "$(PRODUCT_NAME)/Contents/MacOS/$(BUNDLE_NAME)" \
 		$(SWIFT_SOURCES)
-	cp Info.plist $(LOCAL_BUNDLE)/Contents/Info.plist
-	@echo "→ Copying Resources/ contents to bundle..."
-	@cp -R Resources/* $(LOCAL_BUNDLE)/Contents/Resources/
-	codesign --force --sign - $(LOCAL_BUNDLE)
-	@echo "→ Done: $(LOCAL_BUNDLE)"
+	cp Info.plist "$(PRODUCT_NAME)/Contents/Info.plist"
+	@echo "→ Copying Resources/ contents..."
+	@cp -R Resources/* "$(PRODUCT_NAME)/Contents/Resources/"
+	@echo "→ Embedding Sparkle.framework..."
+	@cp -R Sparkle.framework "$(PRODUCT_NAME)/Contents/Frameworks/"
+	@echo "→ Signing framework leaves-first..."
+	@codesign --force --options runtime --timestamp --sign "$(DEV_SIGN_IDENTITY)" \
+		"$(PRODUCT_NAME)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" 2>&1 | tail -1
+	@codesign --force --options runtime --timestamp --sign "$(DEV_SIGN_IDENTITY)" \
+		"$(PRODUCT_NAME)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" 2>&1 | tail -1
+	@codesign --force --options runtime --timestamp --sign "$(DEV_SIGN_IDENTITY)" \
+		"$(PRODUCT_NAME)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app" 2>&1 | tail -1
+	@codesign --force --options runtime --timestamp --sign "$(DEV_SIGN_IDENTITY)" \
+		"$(PRODUCT_NAME)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" 2>&1 | tail -1
+	@codesign --force --options runtime --timestamp --sign "$(DEV_SIGN_IDENTITY)" \
+		"$(PRODUCT_NAME)/Contents/Frameworks/Sparkle.framework" 2>&1 | tail -1
+	@echo "→ Signing app bundle (entitlements + hardened runtime)..."
+	codesign --force --options runtime --timestamp \
+		--entitlements "$(ENTITLEMENTS)" \
+		--sign "$(DEV_SIGN_IDENTITY)" \
+		"$(PRODUCT_NAME)"
+	@echo "→ Done: $(PRODUCT_NAME) (signed: $(DEV_SIGN_IDENTITY))"
 
-dev-install: dev-build
-	@echo "→ Installing to $(LOCAL_INSTALL_DIR)..."
-	@mkdir -p "$(LOCAL_INSTALL_DIR)"
-	rm -rf "$(LOCAL_INSTALL_DIR)/$(LOCAL_BUNDLE)"
-	cp -R $(LOCAL_BUNDLE) "$(LOCAL_INSTALL_DIR)/$(LOCAL_BUNDLE)"
-	-killall ScreenSaverEngine 2>/dev/null || true
-	-killall legacyScreenSaver 2>/dev/null || true
-	@echo "→ Installed. Open System Settings → Screen Saver to activate."
-
-# Test app — bundled as a proper .app so Bundle.main resolves to the
-# Resources/ directory we copy into Contents/Resources/.
-testapp:
-	@echo "→ Building test app..."
-	@rm -rf RainyDayTest.app
-	@mkdir -p RainyDayTest.app/Contents/MacOS RainyDayTest.app/Contents/Resources
-	swiftc -target arm64-apple-macos14.0 -sdk $(SDK) \
-		-framework Cocoa -framework ScreenSaver -framework WebKit \
-		-module-name RainyDayTest -Onone \
-		$(TESTAPP_SOURCES) -o RainyDayTest.app/Contents/MacOS/RainyDayTest
-	cp -R Resources/* RainyDayTest.app/Contents/Resources/
-	cp TestApp/Info.plist RainyDayTest.app/Contents/Info.plist
-	codesign --force --sign - RainyDayTest.app
-	@echo "→ Done: RainyDayTest.app"
-
-run: testapp
-	open RainyDayTest.app
+run: dev-build
+	pkill -f "/$(PRODUCT_NAME)/" 2>/dev/null || true
+	open "$(PRODUCT_NAME)"
 
 icon:
 	@echo "→ Generating icon..."

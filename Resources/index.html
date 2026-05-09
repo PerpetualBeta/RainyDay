@@ -18,176 +18,176 @@
 <body>
   <canvas id="rain"></canvas>
   <canvas id="bg" width="1920" height="1080"></canvas>
+  <div id="emptyState" style="
+       display: none; position: fixed; inset: 0;
+       align-items: center; justify-content: center;
+       color: #c8d0d8; font: 16px -apple-system, BlinkMacSystemFont, sans-serif;
+       background: linear-gradient(180deg, #16202d 0%, #0e1218 100%);
+       text-align: center; padding: 40px;">
+    <div>
+      <div style="font-size: 18px; margin-bottom: 16px; color: #ffffff;">No background images found</div>
+      <div style="opacity: 0.75; line-height: 1.6;">
+        Drop JPG, PNG, or HEIC files into:<br>
+        <code style="opacity: 0.9;">~/Library/Application&nbsp;Support/Rainy&nbsp;Day/Backgrounds/</code><br>
+        and the saver will pick them up next time it activates.
+      </div>
+    </div>
+  </div>
+  <script>
+    // Force preserveDrawingBuffer:true on every WebGL context the page
+    // creates. Without this flag the backbuffer is cleared after each
+    // frame and canvas.toDataURL() returns blank pixels — the
+    // screenshot feature depends on toDataURL returning the actual
+    // rendered rain. Done before the bundle loads so raindrop-fx's
+    // first context call picks up the override.
+    (() => {
+      const orig = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function(type, options) {
+        if (type === 'webgl' || type === 'webgl2') {
+          options = Object.assign({}, options || {}, { preserveDrawingBuffer: true });
+        }
+        return orig.call(this, type, options);
+      };
+    })();
+  </script>
   <script src="raindrop-fx.bundle.js"></script>
   <script>
     'use strict';
 
     // ── Configuration ──────────────────────────────────────────────────────
     //
-    // Set TESTING_MODE = true to run with the short rotation interval
-    // (and any other dev shortcuts). Flip to false before shipping.
-    const TESTING_MODE = false;
-    const ROTATE_MS = TESTING_MODE ? 30 * 1000 : 5 * 60 * 1000;
-    const TRANSITION_MS = 3000;  // crossfade duration between scenes
-
-    // ── Procedural backgrounds ─────────────────────────────────────────────
+    // Native side injects window.RAINY_DAY_CONFIG via WKUserScript at
+    // documentStart with two fields:
+    //   cycleMs:     scene rotation interval in milliseconds
+    //   backgrounds: array of file:// URLs to image files in
+    //                ~/Library/Application Support/Rainy Day/Backgrounds/
     //
-    // Four atmospheric scenes drawn into an offscreen canvas; rotated
-    // through every ROTATE_MS ms with a TRANSITION_MS smooth crossfade.
-    // raindrop-fx accepts the canvas as a texture source — we never load
-    // image files, keeping the .saver bundle small and avoiding photo
-    // licensing concerns.
+    // The native side scans the folder fresh each activation, so the
+    // list always reflects what's actually on disk — files renamed or
+    // removed by the user are picked up automatically. We never
+    // hardcode filenames here: any fallback list would lie about what
+    // exists.
+    const CONFIG = window.RAINY_DAY_CONFIG;
+    const ROTATE_MS = (CONFIG && CONFIG.cycleMs) || (5 * 60 * 1000);
+    const TRANSITION_MS = 3000;
+    const sceneSources = (CONFIG && CONFIG.backgrounds) || [];
+
+    // No backgrounds available — show the empty-state notice and bail
+    // out. raindrop-fx needs a background texture to refract; with no
+    // images there's nothing meaningful to render.
+    if (sceneSources.length === 0) {
+      document.getElementById('rain').style.display = 'none';
+      document.getElementById('emptyState').style.display = 'flex';
+      throw new Error('No backgrounds configured — see emptyState notice');
+    }
 
     const bg = document.getElementById('bg');
     const bctx = bg.getContext('2d');
 
-    // ── Scene painters (each takes a target context) ───────────────────────
-    function paintGradient(ctx, stops) {
-      const g = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
-      stops.forEach(([offset, color]) => g.addColorStop(offset, color));
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
     }
 
-    function paintGlow(ctx, x, y, radius, color, alpha) {
-      const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      g.addColorStop(0, color.replace('ALPHA', alpha));
-      g.addColorStop(1, color.replace('ALPHA', '0'));
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // Paint `img` into `ctx` with object-fit: cover semantics — fill the
+    // whole canvas, crop excess. Without this, source images of varying
+    // aspect ratios would leave bars or distort.
+    function paintImageCover(ctx, img) {
+      const cw = ctx.canvas.width, ch = ctx.canvas.height;
+      const ir = img.width / img.height;
+      const cr = cw / ch;
+      let sx, sy, sw, sh;
+      if (ir > cr) {
+        sh = img.height;
+        sw = sh * cr;
+        sx = (img.width - sw) / 2;
+        sy = 0;
+      } else {
+        sw = img.width;
+        sh = sw / cr;
+        sx = 0;
+        sy = (img.height - sh) / 2;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
     }
 
-    const scenes = {
-      cityNight(ctx) {
-        paintGradient(ctx, [
-          [0.0, '#0a0e15'],
-          [0.5, '#16202d'],
-          [1.0, '#1f2733'],
-        ]);
-        paintGlow(ctx,  340,  680,  420, 'rgba(232, 164,  90, ALPHA)', 0.55);
-        paintGlow(ctx, 1450,  720,  500, 'rgba(232, 164,  90, ALPHA)', 0.45);
-        paintGlow(ctx,  900,  480,  300, 'rgba(232, 164,  90, ALPHA)', 0.30);
-        paintGlow(ctx,  120,  420,  220, 'rgba(180, 200, 220, ALPHA)', 0.20);
-        paintGlow(ctx, 1700,  450,  220, 'rgba(180, 200, 220, ALPHA)', 0.18);
-        paintGlow(ctx,  500,  900,  600, 'rgba(232, 164,  90, ALPHA)', 0.20);
-      },
-      cityDay(ctx) {
-        paintGradient(ctx, [
-          [0.0, '#5a6878'],
-          [0.3, '#7a8898'],
-          [0.6, '#92a0b0'],
-          [0.85, '#5a6470'],
-          [1.0, '#3a4248'],
-        ]);
-        paintGlow(ctx,  960,   40,  900, 'rgba(220, 230, 240, ALPHA)', 0.40);
-        paintGlow(ctx,  300,  120,  500, 'rgba(220, 230, 240, ALPHA)', 0.20);
-        paintGlow(ctx,  280,  600,  240, 'rgba(232, 190, 120, ALPHA)', 0.20);
-        paintGlow(ctx,  540,  540,  200, 'rgba(232, 190, 120, ALPHA)', 0.16);
-        paintGlow(ctx, 1380,  580,  240, 'rgba(232, 190, 120, ALPHA)', 0.20);
-        paintGlow(ctx, 1620,  480,  200, 'rgba(232, 190, 120, ALPHA)', 0.14);
-        paintGlow(ctx,  720,  900,  700, 'rgba(180, 200, 220, ALPHA)', 0.22);
-      },
-      coastDusk(ctx) {
-        paintGradient(ctx, [
-          [0.0, '#1a2540'],
-          [0.4, '#3a3550'],
-          [0.7, '#7a4a3a'],
-          [1.0, '#2a1820'],
-        ]);
-        paintGlow(ctx,  960,  720,  520, 'rgba(255, 180, 110, ALPHA)', 0.70);
-        paintGlow(ctx,  960,  720, 1000, 'rgba(255, 180, 110, ALPHA)', 0.25);
-        paintGlow(ctx,  300,  780,  500, 'rgba(120, 140, 170, ALPHA)', 0.18);
-        paintGlow(ctx, 1620,  780,  500, 'rgba(120, 140, 170, ALPHA)', 0.18);
-      },
-      foggyForest(ctx) {
-        paintGradient(ctx, [
-          [0.0, '#2a3530'],
-          [0.5, '#3e4842'],
-          [1.0, '#1a2220'],
-        ]);
-        paintGlow(ctx,  720,  500,  600, 'rgba(220, 230, 210, ALPHA)', 0.30);
-        paintGlow(ctx, 1300,  600,  500, 'rgba(180, 200, 180, ALPHA)', 0.20);
-        paintGlow(ctx,  240,  700,  300, 'rgba(  0,   0,   0, ALPHA)', 0.40);
-        paintGlow(ctx, 1700,  650,  280, 'rgba(  0,   0,   0, ALPHA)', 0.35);
-      },
-    };
-
-    const sceneOrder = ['cityNight', 'cityDay', 'coastDusk', 'foggyForest'];
+    // ── Boot sequence ──────────────────────────────────────────────────────
+    //
+    // Load every image up front so transitions never block on a network
+    // fetch (the saver runs offline anyway — files are bundled — but
+    // image decoding is still async). Then init raindrop-fx with the
+    // first scene already painted.
+    let fx = null;
+    let scenes = [];
     let sceneIdx = 0;
 
-    // Initial paint — direct to bg.
-    scenes[sceneOrder[sceneIdx]](bctx);
+    console.log('Loading ' + sceneSources.length + ' background images…');
+    Promise.all(sceneSources.map(loadImage)).then(loaded => {
+      console.log('All ' + loaded.length + ' images loaded; first: ' + loaded[0].naturalWidth + 'x' + loaded[0].naturalHeight);
+      scenes = loaded;
+      paintImageCover(bctx, scenes[0]);
 
-    // ── Init raindrop-fx ───────────────────────────────────────────────────
-    //
-    // Tuning notes (2026-05-08):
-    //   - spawnSize bumped from default [60,100] to [90,160] for bigger
-    //     drops with more visual presence.
-    //   - spawnInterval halved from [0.1,0.1] to [0.04,0.06] so drops
-    //     accumulate faster and the screen feels more populated.
-    //   - dropletsPerSeconds raised from default 500 to 800 so the
-    //     ambient mist of tiny droplets is denser.
+      // Tuning notes (bigger drops, faster spawn, denser mist) carried
+      // forward from the original procedural-background config.
+      fx = new RaindropFX({
+        canvas: document.getElementById('rain'),
+        background: bg,
+        spawnSize: [90, 160],
+        spawnInterval: [0.04, 0.06],
+        dropletsPerSeconds: 800,
+      });
+      fx.start();
 
-    const fx = new RaindropFX({
-      canvas: document.getElementById('rain'),
-      background: bg,
-      spawnSize: [90, 160],
-      spawnInterval: [0.04, 0.06],
-      dropletsPerSeconds: 800,
+      // raindrop-fx loads its WebGL assets asynchronously inside fx.start().
+      // Calling fx.resize() before reloadBackground() resolves throws
+      // `null is not an object (evaluating 'this.originalBackground.size')`
+      // at Utils.imageResize. Poll for renderer.originalBackground to
+      // appear, then do the first resize.
+      function waitForFxReady() {
+        if (fx.renderer && fx.renderer.originalBackground) {
+          resize();
+          startRotation();
+        } else {
+          setTimeout(waitForFxReady, 50);
+        }
+      }
+      waitForFxReady();
+    }).catch(err => {
+      console.error('Image load failed:', err);
     });
-    fx.start();
 
     // ── Smooth scene transition (fade through dim) ─────────────────────────
     //
-    // Earlier attempt: crossfade by drawing both old and new scenes to the
-    // same `bg` at varying alpha. Produced a visible diagonal seam during
-    // every transition — raindrop-fx's multi-pass blur pyramid samples the
-    // bg texture inconsistently across passes when the bg canvas itself
-    // contains a gradient blend of two coherent scenes.
-    //
-    // This approach: bg only ever contains ONE complete scene at a time
-    // (plus a black overlay at varying alpha). At the midpoint of the
-    // transition the underlying scene swaps. So the blur pyramid always
-    // sees a coherent scene; the visual change is just a darkening +
-    // lightening of brightness with a content swap at peak darkness.
-    //
-    // The black overlay alpha follows sin(πt) so it goes 0 → 1 → 0
-    // smoothly, peaking at t=0.5 where the swap happens. ~3-second
-    // gentle fade.
-
+    // bg only ever contains ONE complete scene at a time (plus a black
+    // overlay at varying alpha during the transition). Underlying scene
+    // swaps at the midpoint, where the black overlay is at peak alpha
+    // and the actual scene contents are hidden under it. Same approach
+    // we used for procedural scenes — works equally well for photos.
     let transitioning = false;
-    let currentScene = sceneOrder[0];
-
-    function transitionTo(nextName) {
-      if (transitioning) return;
+    function transitionTo(nextIdx) {
+      if (transitioning || !fx) return;
       transitioning = true;
-      const fromScene = currentScene;
+      const fromIdx = sceneIdx;
       const start = performance.now();
       let swapped = false;
 
       function frame(now) {
         const t = Math.min(1, (now - start) / TRANSITION_MS);
-
-        // Swap the underlying scene at the midpoint, when the black
-        // overlay is at peak alpha and the actual scene contents are
-        // hidden under it.
         if (!swapped && t >= 0.5) {
           swapped = true;
-          currentScene = nextName;
+          sceneIdx = nextIdx;
         }
-        const sceneNow = swapped ? nextName : fromScene;
-
-        // Repaint the active scene fresh each frame, then overlay black
-        // at sin(πt) alpha. Cheap (gradient + a few radial fills + one
-        // solid rect) and ensures bg has a coherent painted state.
-        scenes[sceneNow](bctx);
+        const idxNow = swapped ? nextIdx : fromIdx;
+        paintImageCover(bctx, scenes[idxNow]);
         bctx.fillStyle = `rgba(0, 0, 0, ${Math.sin(t * Math.PI)})`;
         bctx.fillRect(0, 0, bg.width, bg.height);
-
         if (typeof fx.setBackground === 'function') {
           fx.setBackground(bg);
         }
-
         if (t < 1) {
           requestAnimationFrame(frame);
         } else {
@@ -197,10 +197,12 @@
       requestAnimationFrame(frame);
     }
 
-    setInterval(() => {
-      sceneIdx = (sceneIdx + 1) % sceneOrder.length;
-      transitionTo(sceneOrder[sceneIdx]);
-    }, ROTATE_MS);
+    function startRotation() {
+      setInterval(() => {
+        const next = (sceneIdx + 1) % scenes.length;
+        transitionTo(next);
+      }, ROTATE_MS);
+    }
 
     // ── Resize handling ────────────────────────────────────────────────────
     function resize() {
@@ -208,12 +210,14 @@
       const rain = document.getElementById('rain');
       rain.width = Math.floor(window.innerWidth * dpr);
       rain.height = Math.floor(window.innerHeight * dpr);
-      if (typeof fx.resize === 'function') {
+      if (fx
+          && typeof fx.resize === 'function'
+          && fx.renderer
+          && fx.renderer.originalBackground) {
         fx.resize(rain.width, rain.height);
       }
     }
     window.addEventListener('resize', resize);
-    resize();
   </script>
 </body>
 </html>
