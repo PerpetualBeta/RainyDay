@@ -9,7 +9,12 @@ A meditative macOS rain-on-glass screensaver. Real-looking raindrops slip down a
 
 ## Installation
 
-Download `RainyDay.pkg` from the [latest release](https://github.com/PerpetualBeta/RainyDay/releases/latest) and double-click it. The installer drops `Rainy Day.app` into `/Applications/` and registers it for launch at user login.
+Two formats on every release — both signed and notarised, pick whichever suits:
+
+- **[Installer (`.pkg`)](https://github.com/PerpetualBeta/RainyDay/releases/latest/download/RainyDay.pkg)** — recommended for first-time installs. Double-click to run; macOS Installer places `Rainy Day.app` in `/Applications/` without quarantine or App Translocation.
+- **[Download (`.zip`)](https://github.com/PerpetualBeta/RainyDay/releases/latest)** — unzip and drag `Rainy Day.app` to your `/Applications/` folder.
+
+Either way, the first launch happens immediately. Rainy Day registers itself for launch at user login on first run; toggle that off in Settings → General if you'd rather start it manually.
 
 After first launch, you'll see a small **cloud-with-rain** icon in your menu bar. That's your only touchpoint with the app — everything else lives in its menu and its **Settings…** window.
 

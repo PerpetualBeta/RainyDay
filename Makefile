@@ -15,12 +15,14 @@ PRODUCT_NAME     := Rainy Day.app
 BUNDLE_ID        := cc.jorviksoftware.RainyDay
 BUILD_SYSTEM     := swiftc
 
-# Ship as a signed/notarised .pkg installer that drops the .app into
-# /Applications. release.mk uses BUNDLE_TYPE to derive INSTALL_ROOT —
-# `app` selects /Applications (saver-only apps go to /Library/Screen
-# Savers). PACKAGE_TYPE=pkg means produce only the .pkg, no .zip side
-# artefact; ALSO_SHIP_PKG defaults to false.
-PACKAGE_TYPE     := pkg
+# Ship both a .zip (unzip + drag to /Applications) and a .pkg
+# (signed/notarised installer that drops the .app into /Applications
+# and avoids App Translocation). release.mk uses BUNDLE_TYPE to derive
+# INSTALL_ROOT — `app` selects /Applications. PACKAGE_TYPE=zip is the
+# primary artefact; ALSO_SHIP_PKG=true triggers a second pass for the
+# .pkg. Same dual-ship pattern as the other public Jorvik apps.
+PACKAGE_TYPE     := zip
+ALSO_SHIP_PKG    := true
 
 SWIFT_FRAMEWORKS := Cocoa WebKit CoreGraphics ServiceManagement
 SWIFT_SOURCES    := App/main.swift App/AppDelegate.swift App/ScreensaverWindow.swift \
