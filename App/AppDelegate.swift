@@ -134,22 +134,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Login auto-launch
 
+    /// Auto-register for launch-at-login on the very first run only.
+    /// Running the installer (or first-launching the .app) is the
+    /// consent gesture; the README documents the auto-launch behaviour.
+    /// Every subsequent launch leaves the system state alone — if the
+    /// user disables Rainy Day in System Settings → Login Items, we
+    /// don't fight them back. The Settings → General → "Launch at
+    /// Login" toggle is the only thing that toggles the state after
+    /// first run.
     private func registerAtLoginIfNeeded() {
+        let firstRunKey = "didAttemptInitialLoginRegistration"
+        let alreadyAttempted = UserDefaults.standard.bool(forKey: firstRunKey)
         let service = SMAppService.mainApp
-        switch service.status {
-        case .enabled:
-            rdLog("login item: already enabled")
-        case .requiresApproval:
-            rdLog("login item: requires user approval (System Settings → Login Items)")
-        case .notRegistered, .notFound:
-            do {
-                try service.register()
-                rdLog("login item: registered for launch at login")
-            } catch {
-                rdLog("login item: register failed — \(error.localizedDescription)")
-            }
-        @unknown default:
-            rdLog("login item: unknown status \(service.status.rawValue)")
+        guard !alreadyAttempted else {
+            rdLog("login item: status=\(service.status.rawValue), respecting user choice")
+            return
+        }
+        UserDefaults.standard.set(true, forKey: firstRunKey)
+        guard service.status == .notRegistered || service.status == .notFound else {
+            rdLog("login item: first run, status already \(service.status.rawValue) — no action")
+            return
+        }
+        do {
+            try service.register()
+            rdLog("login item: first-run registration done")
+        } catch {
+            rdLog("login item: first-run registration failed — \(error.localizedDescription)")
         }
     }
 

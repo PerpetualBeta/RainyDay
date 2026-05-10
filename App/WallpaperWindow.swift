@@ -41,25 +41,18 @@ final class WallpaperWindow {
 
     private func configureWebView() {
         let config = WKWebViewConfiguration()
+        // Same WebView-policy rationale as ScreensaverWindow:
+        // allowFileAccessFromFileURLs lets the page draw file:// images
+        // into a clean canvas; developerExtrasEnabled is OFF because
+        // this window is click-through and unreachable for inspection.
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
-        // Same config-injection pattern as ScreensaverWindow — read
-        // user-configured cycle time and the live backgrounds list at
-        // window-creation time.
-        let cycleMinutes = max(1, min(30, UserDefaults.standard.integer(forKey: "cycleMinutes")))
-        let cycleMs = (cycleMinutes > 0 ? cycleMinutes : 5) * 60 * 1000
-        let bgURLs = BackgroundsStore.currentImages()
-            .map { "\"\($0.absoluteString)\"" }
-            .joined(separator: ", ")
-        let injected = """
-        window.RAINY_DAY_CONFIG = {
-            cycleMs: \(cycleMs),
-            backgrounds: [\(bgURLs)]
-        };
-        """
+        // Shared config-injection helper — JSON-serialised in
+        // ScreensaverWindow.makeConfigScript() so a path with `"` or
+        // `\` can't break out of the generated JS literal.
         config.userContentController.addUserScript(WKUserScript(
-            source: injected, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            source: ScreensaverWindow.makeConfigScript(),
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
         let container = NSView(frame: NSRect(origin: .zero, size: window.frame.size))
         container.wantsLayer = true

@@ -3,6 +3,24 @@
 <head>
 <meta charset="utf-8">
 <title>Rainy Day</title>
+<!-- Defense-in-depth content security policy. The page is fully
+     bundled and never loads remote content, but a CSP shuts down
+     whole categories of regressions if a future change accidentally
+     introduces a network input. connect-src 'none' kills fetch/XHR;
+     script-src 'self' blocks injected remote scripts; img-src 'self'
+     file: covers both bundle resources and ~/Library/App Support
+     backgrounds. 'unsafe-inline' is required for the inline <style>
+     and <script> blocks below — there's no remote injection vector
+     so it's not a meaningful weakness here. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' file:;
+               script-src 'self' 'unsafe-inline';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' file:;
+               connect-src 'none';
+               object-src 'none';
+               base-uri 'none';
+               frame-src 'none';">
 <style>
   html, body {
     margin: 0; padding: 0; overflow: hidden;

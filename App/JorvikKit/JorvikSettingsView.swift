@@ -34,15 +34,15 @@ struct JorvikSettingsView<AppSettings: View>: View {
                         }
                 }
 
-                // The legacy "Updates" Section was removed when MenuTidy
+                // The legacy "Updates" Section was removed when the suite
                 // migrated to Sparkle 2.x. Sparkle handles checking,
                 // downloading, and installation directly, with its own
-                // user-facing prompt UI. Manual triggering lives at the
-                // top of MenuTidy's right-click menu ("Check for Updates…").
-                // The interval and auto-install preferences are configured
-                // via Info.plist (SUScheduledCheckInterval) and Sparkle's
-                // own update prompt (the "Automatically download and
-                // install updates in the future" checkbox).
+                // user-facing prompt UI. Manual triggering lives in each
+                // app's status menu ("Check for Updates…"). Interval and
+                // auto-install preferences are configured via Info.plist
+                // (SUScheduledCheckInterval) and Sparkle's own update
+                // prompt ("Automatically download and install updates in
+                // the future" checkbox).
             }
             .formStyle(.grouped)
 

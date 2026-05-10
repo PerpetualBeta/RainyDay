@@ -47,28 +47,25 @@ final class ScreensaverWindow {
 
     private func configureWebView(on screen: NSScreen) {
         let config = WKWebViewConfiguration()
+        // Required so the file:// page can read its file:// background
+        // images into a canvas without tainting it (raindrop-fx's WebGL
+        // upload + the toDataURL screenshot path both depend on the
+        // canvas being clean). developerExtrasEnabled is intentionally
+        // NOT set — the saver dismisses on any mouse event so devtools
+        // would be unreachable in normal use anyway.
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
         // Inject runtime config BEFORE the page's main scripts run so
         // index.html sees window.RAINY_DAY_CONFIG synchronously when
-        // it executes. Carries the user-configured cycle time and the
-        // list of background images from App Support.
-        let cycleMinutes = max(1, min(30, UserDefaults.standard.integer(forKey: "cycleMinutes")))
-        let cycleMs = (cycleMinutes > 0 ? cycleMinutes : 5) * 60 * 1000
-        let bgURLs = BackgroundsStore.currentImages()
-            .map { "\"\($0.absoluteString)\"" }
-            .joined(separator: ", ")
-        let injected = """
-        window.RAINY_DAY_CONFIG = {
-            cycleMs: \(cycleMs),
-            backgrounds: [\(bgURLs)]
-        };
-        """
-        let userScript = WKUserScript(source: injected,
-                                      injectionTime: .atDocumentStart,
-                                      forMainFrameOnly: true)
-        config.userContentController.addUserScript(userScript)
+        // it executes. JSON-serialised rather than string-interpolated
+        // — a path containing a `"` or `\` would otherwise break the
+        // generated JS literal (URL percent-encoding usually saves us
+        // here, but JSON is the right tool and removes the dependency
+        // on URL escaping rules never changing).
+        config.userContentController.addUserScript(
+            WKUserScript(source: Self.makeConfigScript(),
+                         injectionTime: .atDocumentStart,
+                         forMainFrameOnly: true))
 
         let container = NSView(frame: NSRect(origin: .zero, size: window.frame.size))
         container.wantsLayer = true
@@ -141,5 +138,24 @@ final class ScreensaverWindow {
         // N hides + N unhides, leaving the global state correct.
         NSCursor.unhide()
         window.orderOut(nil)
+    }
+
+    /// Build the WKUserScript source that defines `window.RAINY_DAY_CONFIG`.
+    /// Shared with `WallpaperWindow` — both windows want identical config.
+    static func makeConfigScript() -> String {
+        let cycleMinutes = max(1, min(30, UserDefaults.standard.integer(forKey: "cycleMinutes")))
+        let cycleMs = (cycleMinutes > 0 ? cycleMinutes : 5) * 60 * 1000
+        let payload: [String: Any] = [
+            "cycleMs": cycleMs,
+            "backgrounds": BackgroundsStore.currentImages().map { $0.absoluteString }
+        ]
+        let json: String
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+           let str = String(data: data, encoding: .utf8) {
+            json = str
+        } else {
+            json = #"{"cycleMs":300000,"backgrounds":[]}"#
+        }
+        return "window.RAINY_DAY_CONFIG = \(json);"
     }
 }
