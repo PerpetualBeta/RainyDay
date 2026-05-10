@@ -25,7 +25,7 @@ It auto-launches at login, hides itself in the background, and brings up a fulls
 
 Drops gather on the surface of the glass and slip down with realistic gravity, refracting the photograph behind them as they pass over it. Larger drops absorb the smaller ones in their path and shed trail droplets behind. The whole pane carries a fine mist of tiny droplets that comes and goes.
 
-Six photographic backgrounds rotate through every five minutes (configurable, 1–30 minutes) with a gentle three-second fade-through-dim transition between scenes. You can swap, add, or remove background images at any time — see **Custom backgrounds** below.
+Eight photographic backgrounds rotate through every five minutes (configurable, 1–30 minutes) with a gentle three-second fade-through-dim transition between scenes. You can swap, add, or remove background images at any time — see **Custom backgrounds** below.
 
 ## Configuration
 
@@ -43,7 +43,7 @@ All settings persist immediately, no Save/OK button.
 
 ### Custom backgrounds
 
-Backgrounds live in `~/Library/Application Support/Rainy Day/Backgrounds/`. The app seeds this folder with six default photos on first launch; after that, it's yours to manage. Drop in JPG, PNG, or HEIC files; remove or rename anything you like. The saver scans the folder fresh on each activation, so it always reflects what's on disk.
+Backgrounds live in `~/Library/Application Support/Rainy Day/Backgrounds/`. The app seeds this folder with eight default photos on first launch; after that, it's yours to manage. Drop in JPG, PNG, or HEIC files; remove or rename anything you like. The saver scans the folder fresh on each activation, so it always reflects what's on disk.
 
 If the folder is empty, the saver shows a centred notice telling you where to drop images, instead of failing silently.
 
