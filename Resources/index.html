@@ -8,15 +8,18 @@
      whole categories of regressions if a future change accidentally
      introduces a network input. connect-src 'none' kills fetch/XHR;
      script-src 'self' blocks injected remote scripts; img-src 'self'
-     file: covers both bundle resources and ~/Library/App Support
-     backgrounds. 'unsafe-inline' is required for the inline <style>
-     and <script> blocks below — there's no remote injection vector
-     so it's not a meaningful weakness here. -->
+     file: blob: covers both bundle resources, ~/Library/App Support
+     backgrounds, AND the blob: URL raindrop-fx uses internally to
+     hand its embedded drop-sprite buffer to an Image element (without
+     blob: in img-src the sprite never loads and drops render as huge
+     untextured rectangles). 'unsafe-inline' is required for the
+     inline <style> and <script> blocks below — there's no remote
+     injection vector so it's not a meaningful weakness here. -->
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self' file:;
                script-src 'self' 'unsafe-inline';
                style-src 'self' 'unsafe-inline';
-               img-src 'self' file:;
+               img-src 'self' file: blob:;
                connect-src 'none';
                object-src 'none';
                base-uri 'none';
