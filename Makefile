@@ -10,9 +10,17 @@
 
 # ─── Project identity ────────────────────────────────────────────────────────
 BUNDLE_NAME      := RainyDay
+BUNDLE_TYPE      := app
 PRODUCT_NAME     := Rainy Day.app
 BUNDLE_ID        := cc.jorviksoftware.RainyDay
 BUILD_SYSTEM     := swiftc
+
+# Ship as a signed/notarised .pkg installer that drops the .app into
+# /Applications. release.mk uses BUNDLE_TYPE to derive INSTALL_ROOT —
+# `app` selects /Applications (saver-only apps go to /Library/Screen
+# Savers). PACKAGE_TYPE=pkg means produce only the .pkg, no .zip side
+# artefact; ALSO_SHIP_PKG defaults to false.
+PACKAGE_TYPE     := pkg
 
 SWIFT_FRAMEWORKS := Cocoa WebKit CoreGraphics ServiceManagement
 SWIFT_SOURCES    := App/main.swift App/AppDelegate.swift App/ScreensaverWindow.swift \
