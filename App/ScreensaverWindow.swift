@@ -22,12 +22,16 @@ final class ScreensaverWindow {
     init(screen: NSScreen, onDismiss: @escaping () -> Void) {
         self.onDismiss = onDismiss
         self.screen = screen
+        // NSWindow's screen: parameter interprets contentRect as RELATIVE
+        // to that screen's origin — so passing screen.frame (already in
+        // global coords) with screen: secondaryScreen double-applies the
+        // offset and parks the window off-screen. Omit the hint and let
+        // the global contentRect place the window itself.
         self.window = NSWindow(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
-            defer: false,
-            screen: screen
+            defer: false
         )
         // Screensaver level — above all normal windows including
         // floating panels. Black opaque background so any letterboxing

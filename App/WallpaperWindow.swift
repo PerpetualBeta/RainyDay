@@ -18,12 +18,15 @@ final class WallpaperWindow {
 
     init(screen: NSScreen) {
         self.screen = screen
+        // See ScreensaverWindow: NSWindow's screen: hint makes contentRect
+        // relative to that screen, double-applying the offset on the
+        // secondary display. Drop the hint and let the global frame place
+        // the window.
         self.window = NSWindow(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
-            defer: false,
-            screen: screen
+            defer: false
         )
         // Desktop level — below normal app windows, above the actual
         // macOS wallpaper. Desktop icons sit on top of us, which is
