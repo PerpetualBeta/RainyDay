@@ -30,6 +30,15 @@
     background: #0e1218;
     width: 100vw; height: 100vh;
   }
+  /* Hide the cursor while the saver is up. NSCursor.hide() and
+     CGDisplayHideCursor both require the calling app to be frontmost,
+     and Rainy Day is LSUIElement and never activates itself — so the
+     native APIs silently no-op. WebKit's own cursor handling is
+     independent of macOS app activation: cursor:none on every element
+     inside the WKWebView hides the pointer for the full lifetime of
+     the saver window, dismissing automatically when the window is
+     torn down and the mouse moves out of WebKit's viewport. */
+  * { cursor: none !important; }
   canvas#rain { display: block; width: 100vw; height: 100vh; }
   /* Background canvas is offscreen — only ever rendered through
      raindrop-fx's refraction pass, never directly. */

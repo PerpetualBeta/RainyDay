@@ -102,14 +102,14 @@ final class ScreensaverWindow {
 
     func activate() {
         window.makeKeyAndOrderFront(nil)
-        // Hide the cursor while the saver is running. NSCursor.hide()
-        // only takes effect while the calling app is frontmost — Rainy
-        // Day is LSUIElement and never activates itself, so the cursor
-        // would remain visible over the rain. CGDisplayHideCursor hides
-        // globally regardless of foreground state and maintains its own
-        // hide-count, so multi-window activations across multiple
-        // displays balance correctly the same way NSCursor would have.
-        CGDisplayHideCursor(CGMainDisplayID())
+        // Cursor hiding is done by the page itself via CSS
+        // (`* { cursor: none }` in Resources/index.html). Native
+        // hiding APIs (NSCursor.hide, CGDisplayHideCursor) both
+        // require the calling app to be frontmost — Rainy Day is
+        // LSUIElement and never activates itself, so both silently
+        // no-op. WebKit's cursor handling is independent of macOS
+        // activation state, which makes the CSS rule the only path
+        // that actually works for an accessory-app screensaver.
         // Grace period before installing the dismiss monitor. When
         // the user activates via a global hotkey (⌃⌥⌘R or similar),
         // they release the modifier keys an instant after the press.
@@ -140,10 +140,10 @@ final class ScreensaverWindow {
             NSEvent.removeMonitor(m)
             eventMonitor = nil
         }
-        // Balance the activate-side hide. CGDisplay maintains a
-        // hide-count internally; for N activated windows we issue
-        // N hides + N shows, leaving the global state correct.
-        CGDisplayShowCursor(CGMainDisplayID())
+        // Cursor reappears automatically: the CSS rule that hid it
+        // lives inside the WKWebView, and orderOut takes the whole
+        // window (and the WebView with it) off-screen. No native
+        // unhide needed.
         window.orderOut(nil)
     }
 
