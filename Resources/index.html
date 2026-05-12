@@ -146,6 +146,19 @@
     let scenes = [];
     let sceneIdx = 0;
 
+    // Native side calls this via WKWebView.evaluateJavaScript when the
+    // system lock screen comes up over a saver session — pauses the
+    // WebGL animation loop so we don't burn GPU on rain that loginwindow
+    // is fully covering. fx.stop() cancels the requestAnimationFrame.
+    // No paired resume — the window is torn down on unlock and the page
+    // never sees the lock end. Safe to call before fx is initialised
+    // (e.g. saver triggered + locked inside the image-load window).
+    window.rainyDayPause = function() {
+      if (fx && typeof fx.stop === 'function') {
+        fx.stop();
+      }
+    };
+
     console.log('Loading ' + sceneSources.length + ' background images…');
     Promise.all(sceneSources.map(loadImage)).then(loaded => {
       console.log('All ' + loaded.length + ' images loaded; first: ' + loaded[0].naturalWidth + 'x' + loaded[0].naturalHeight);

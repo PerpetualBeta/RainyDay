@@ -233,16 +233,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func dismissWindows(triggerLock: Bool) {
         guard !windows.isEmpty else { return }
         if triggerLock {
-            // Don't tear down on a fixed timer — the macOS lock-screen
-            // animation can take 1–2 seconds and any guess here either
-            // flashes the desktop (too short) or feels laggy (too long).
-            // Instead, observe the system's `com.apple.screenIsLocked`
-            // distributed notification: tear down only AFTER macOS
-            // confirms the lock screen is up and covering us. The saver
-            // windows stay visible until then, so the visual transition
-            // is screensaver → lock screen with no desktop in between.
-            rdLog("dismiss with lock — waiting for screenIsLocked")
-            observeLockThenTearDown()
+            // Tearing down on the same frame as the lock-screen
+            // animation completes reliably flashes a frame or two of
+            // desktop between the saver disappearing and loginwindow's
+            // UI fully covering the display. Earlier attempts to time
+            // the teardown off `com.apple.screenIsLocked` couldn't
+            // close that gap deterministically — the notification can
+            // lead the visual lock by a frame, and any added delay is
+            // guesswork.
+            //
+            // Instead: don't tear down on lock at all. Lock the screen,
+            // pause the WebGL render loop when the lock confirms (the
+            // page exposes `window.rainyDayPause()`), and let the
+            // existing wake/unlock observer in observeWakeAndUnlock()
+            // tear down on `screenIsUnlocked`. The lock screen is at a
+            // higher window level than `.screenSaver`, so it provably
+            // covers our windows the moment it's up — there's no path
+            // by which the desktop becomes visible to the user.
+            rdLog("dismiss with lock — pausing on screenIsLocked, teardown deferred to unlock")
+            observeLockThenPause()
             LockScreen.lock()
         } else {
             tearDownWindows()
@@ -250,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var lockObserver: NSObjectProtocol?
-    private func observeLockThenTearDown() {
+    private func observeLockThenPause() {
         let center = DistributedNotificationCenter.default()
         // Idempotent — clear any stale observer from a previous cycle.
         if let prev = lockObserver { center.removeObserver(prev); lockObserver = nil }
@@ -260,19 +269,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil, queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            rdLog("screenIsLocked received — tearing down")
+            rdLog("screenIsLocked received — pausing animation, windows stay until unlock")
             self.cleanupLockObserver()
-            self.tearDownWindows()
+            self.pauseAllWindows()
         }
         // Safety net: if no lock notification arrives within 4 seconds
-        // (osascript permission denied, lock-screen subsystem hung),
-        // tear down anyway so we don't leak the windows.
+        // (Accessibility permission denied, lock-screen subsystem hung
+        // — whatever the cause, our LockScreen.lock() keystroke went
+        // nowhere) the saver would otherwise stay up indefinitely with
+        // no lock UI ever appearing over it. Fall back to a normal
+        // teardown so we don't leave the user stuck.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
             guard let self = self, self.lockObserver != nil else { return }
-            rdLog("screenIsLocked timeout — tearing down anyway")
+            rdLog("screenIsLocked timeout — lock likely failed, tearing down")
             self.cleanupLockObserver()
             self.tearDownWindows()
         }
+    }
+
+    private func pauseAllWindows() {
+        for win in windows { win.pauseAnimation() }
     }
 
     private func cleanupLockObserver() {

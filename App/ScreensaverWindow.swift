@@ -102,11 +102,14 @@ final class ScreensaverWindow {
 
     func activate() {
         window.makeKeyAndOrderFront(nil)
-        // Hide the cursor while the saver is running. Counter-balanced
-        // with `unhide()` in `deactivate()`; the AppKit API maintains
-        // an internal hide-count, so multi-window activations across
-        // multiple displays balance correctly.
-        NSCursor.hide()
+        // Hide the cursor while the saver is running. NSCursor.hide()
+        // only takes effect while the calling app is frontmost — Rainy
+        // Day is LSUIElement and never activates itself, so the cursor
+        // would remain visible over the rain. CGDisplayHideCursor hides
+        // globally regardless of foreground state and maintains its own
+        // hide-count, so multi-window activations across multiple
+        // displays balance correctly the same way NSCursor would have.
+        CGDisplayHideCursor(CGMainDisplayID())
         // Grace period before installing the dismiss monitor. When
         // the user activates via a global hotkey (⌃⌥⌘R or similar),
         // they release the modifier keys an instant after the press.
@@ -137,11 +140,22 @@ final class ScreensaverWindow {
             NSEvent.removeMonitor(m)
             eventMonitor = nil
         }
-        // Balance the activate-side hide(). AppKit maintains a
+        // Balance the activate-side hide. CGDisplay maintains a
         // hide-count internally; for N activated windows we issue
-        // N hides + N unhides, leaving the global state correct.
-        NSCursor.unhide()
+        // N hides + N shows, leaving the global state correct.
+        CGDisplayShowCursor(CGMainDisplayID())
         window.orderOut(nil)
+    }
+
+    /// Halt the WebGL render loop without tearing down the window.
+    /// Used while the system lock screen is covering us — the saver
+    /// windows are invisible under loginwindow, so there's no point
+    /// burning GPU on rain nobody can see. The page exposes
+    /// `window.rainyDayPause()` which calls `fx.stop()` (cancels the
+    /// requestAnimationFrame loop). The whole window is torn down on
+    /// unlock, so a paired resume isn't needed.
+    func pauseAnimation() {
+        webView?.evaluateJavaScript("window.rainyDayPause && window.rainyDayPause();", completionHandler: nil)
     }
 
     /// Build the WKUserScript source that defines `window.RAINY_DAY_CONFIG`.
