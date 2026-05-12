@@ -1,6 +1,51 @@
 import AppKit
 import WebKit
 
+/// Container view that hides the cursor while the mouse is anywhere
+/// inside its bounds. Solves the dual-display case: the CSS
+/// `cursor: none` rule inside the WebView only fires when WebKit
+/// processes a mouseMoved event, and macOS only delivers mouseMoved
+/// to the *key* window by default — so on the secondary display
+/// (whose window is never key) the cursor stayed visible. An
+/// `.activeAlways` tracking area sidesteps the key-window restriction
+/// and works for every display.
+///
+/// A 1×1 transparent NSCursor is used instead of `NSCursor.hide()`
+/// because hide() and `CGDisplayHideCursor` both require the calling
+/// app to be frontmost, and Rainy Day is LSUIElement.
+private final class CursorHidingView: NSView {
+    private static let invisible: NSCursor = {
+        let img = NSImage(size: NSSize(width: 16, height: 16))
+        return NSCursor(image: img, hotSpot: .zero)
+    }()
+
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect,
+                      .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        Self.invisible.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        Self.invisible.set()
+    }
+}
+
 /// A fullscreen, top-level window covering one display, hosting a
 /// WKWebView running raindrop-fx. Dismisses on any mouse or key event.
 ///
@@ -71,7 +116,7 @@ final class ScreensaverWindow {
                          injectionTime: .atDocumentStart,
                          forMainFrameOnly: true))
 
-        let container = NSView(frame: NSRect(origin: .zero, size: window.frame.size))
+        let container = CursorHidingView(frame: NSRect(origin: .zero, size: window.frame.size))
         container.wantsLayer = true
         window.contentView = container
 
@@ -102,14 +147,16 @@ final class ScreensaverWindow {
 
     func activate() {
         window.makeKeyAndOrderFront(nil)
-        // Cursor hiding is done by the page itself via CSS
-        // (`* { cursor: none }` in Resources/index.html). Native
-        // hiding APIs (NSCursor.hide, CGDisplayHideCursor) both
-        // require the calling app to be frontmost — Rainy Day is
-        // LSUIElement and never activates itself, so both silently
-        // no-op. WebKit's cursor handling is independent of macOS
-        // activation state, which makes the CSS rule the only path
-        // that actually works for an accessory-app screensaver.
+        // Cursor hiding has two paths working together:
+        //   • CSS `* { cursor: none }` inside the WKWebView (see
+        //     Resources/index.html), which WebKit honours when it
+        //     processes mouseMoved events.
+        //   • `CursorHidingView`'s .activeAlways NSTrackingArea (above),
+        //     which sets a 1×1 transparent NSCursor on enter/move.
+        // The CSS alone wasn't enough: macOS only delivers mouseMoved
+        // to the key window by default, so the secondary display's
+        // saver (never key) saw a visible cursor. The tracking area
+        // covers every display regardless of key status.
         // Grace period before installing the dismiss monitor. When
         // the user activates via a global hotkey (⌃⌥⌘R or similar),
         // they release the modifier keys an instant after the press.
