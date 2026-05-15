@@ -8,13 +8,6 @@ import ApplicationServices
 /// live in `RainyDaySettingsContent`.
 final class SettingsWindow {
 
-    /// Stable JorvikUpdateChecker instance — kept around because
-    /// JorvikSettingsView requires one as a parameter even though
-    /// Sparkle now handles the actual update flow. Per the KB:
-    /// "Leave the JorvikUpdateChecker instance in place; the lingering
-    /// instance is inert."
-    private let updateChecker = JorvikUpdateChecker(repoName: "RainyDay")
-
     let activateRecorder: HotkeyRecorderView
     let screenshotRecorder: HotkeyRecorderView
 
@@ -24,10 +17,7 @@ final class SettingsWindow {
     }
 
     func show() {
-        JorvikSettingsView.showWindow(
-            appName: "Rainy Day",
-            updateChecker: updateChecker
-        ) {
+        JorvikSettingsView.showWindow(appName: "Rainy Day") {
             RainyDaySettingsContent(
                 activateRecorder: self.activateRecorder,
                 screenshotRecorder: self.screenshotRecorder
