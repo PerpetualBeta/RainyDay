@@ -61,6 +61,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         rdLog("applicationDidFinishLaunching — idle threshold \(Int(idleThresholdSeconds))s")
+        // Seed the registration domain so `integer(forKey:)` returns the
+        // intended default when the user hasn't explicitly written the
+        // key. `@AppStorage` only writes to UserDefaults on user change —
+        // its declared default is purely what the UI displays. Without
+        // this registration, an unset `cycleMinutes` reads as 0, gets
+        // clamped to 1 in `makeConfigScript`, and the saver rotates
+        // backgrounds every minute instead of every five.
+        UserDefaults.standard.register(defaults: [
+            "cycleMinutes": 5,
+            "idleMinutes":  15,
+        ])
         BackgroundsStore.ensureSeeded()
         registerAtLoginIfNeeded()
         // Touch the lazy property so the updater starts and begins

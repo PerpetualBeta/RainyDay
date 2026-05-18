@@ -263,8 +263,12 @@ final class ScreensaverWindow {
     /// Build the WKUserScript source that defines `window.RAINY_DAY_CONFIG`.
     /// Shared with `WallpaperWindow` — both windows want identical config.
     static func makeConfigScript() -> String {
+        // `cycleMinutes` reads cleanly because AppDelegate registers a
+        // default of 5 at launch — `integer(forKey:)` returns 5 for an
+        // unset key rather than 0. The clamp here is purely defensive
+        // against a wildly-out-of-range value somehow getting written.
         let cycleMinutes = max(1, min(30, UserDefaults.standard.integer(forKey: "cycleMinutes")))
-        let cycleMs = (cycleMinutes > 0 ? cycleMinutes : 5) * 60 * 1000
+        let cycleMs = cycleMinutes * 60 * 1000
         let payload: [String: Any] = [
             "cycleMs": cycleMs,
             "backgrounds": BackgroundsStore.currentImages().map { $0.absoluteString }
