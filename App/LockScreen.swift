@@ -1,38 +1,48 @@
 import Foundation
-import Carbon.HIToolbox
-import CoreGraphics
 
-/// Locks the screen by posting macOS's built-in Lock Screen keyboard
-/// shortcut (⌃⌘Q) directly via `CGEvent`. We previously shelled out to
-/// `osascript -e 'tell application "System Events" to keystroke "q"
-/// using {control down, command down}'`, which worked but cost
-/// 200–400ms of subprocess + AppleScript + System Events startup
-/// before loginwindow ever saw the keystroke. That gap was visible:
-/// the saver stayed up but the lock UI took a beat to overlay it.
+/// Locks the screen by calling `SACLockScreenImmediate` in
+/// `/System/Library/PrivateFrameworks/login.framework`.
 ///
-/// CGEvent posts straight at the session event tap. Loginwindow gets
-/// the keystroke essentially immediately, the lock UI animates in
-/// over the still-rendering saver, and the visual flow now matches a
-/// native `.saver` bundle — saver running underneath, auth prompt on
-/// top, both dismiss together when the user authenticates.
+/// We previously synthesised `⌃⌘Q` via `CGEvent` posted at the session
+/// event tap. That worked on Sonoma and earlier, but macOS Tahoe
+/// (26.x) tightened the policy on synthesised system shortcuts — the
+/// keystroke is consumed but loginwindow never receives it, so the
+/// lock screen never appears. The dismiss observer then times out
+/// after 4 seconds and tears the saver down without ever locking.
 ///
-/// Still requires Accessibility — CGEvents posted at the session tap
-/// go through the same TCC trust check the AppleScript path did. The
-/// Settings → Permissions toggle and the system prompt are unchanged.
+/// `SACLockScreenImmediate` is the IPC path Apple uses internally
+/// (loginwindow's own private framework), and it's the canonical
+/// approach used by Hammerspoon, Bear, and most other menu-bar lock
+/// apps. It doesn't require Accessibility because we're not
+/// synthesising a keystroke — we're telling loginwindow directly to
+/// lock. Verified present in Tahoe via dlsym.
+///
+/// Private API caveat: Apple could remove or rename the symbol in a
+/// future macOS. The fall-through path here logs the failure and
+/// returns gracefully; the dismiss flow then proceeds without
+/// locking (the saver still tears down on the timeout path in
+/// observeLockThenPause).
 enum LockScreen {
+    private typealias SACLockFn = @convention(c) () -> Int32
+
+    /// Resolved once at first access. Cached for the process lifetime —
+    /// the framework + symbol don't change while we're running, and
+    /// re-resolving on every lock call would be wasted dlopen/dlsym.
+    private static let sacLockScreenImmediate: SACLockFn? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
+              let sym = dlsym(handle, "SACLockScreenImmediate")
+        else {
+            return nil
+        }
+        return unsafeBitCast(sym, to: SACLockFn.self)
+    }()
+
     static func lock() {
-        let src = CGEventSource(stateID: .hidSystemState)
-        let q = CGKeyCode(kVK_ANSI_Q)
-        guard let down = CGEvent(keyboardEventSource: src, virtualKey: q, keyDown: true),
-              let up   = CGEvent(keyboardEventSource: src, virtualKey: q, keyDown: false) else {
-            rdLog("LockScreen: CGEvent creation failed")
+        guard let fn = sacLockScreenImmediate else {
+            rdLog("LockScreen: SACLockScreenImmediate unavailable — lock skipped")
             return
         }
-        let mods: CGEventFlags = [.maskCommand, .maskControl]
-        down.flags = mods
-        up.flags = mods
-        down.post(tap: .cgSessionEventTap)
-        up.post(tap: .cgSessionEventTap)
-        rdLog("LockScreen: posted ⌃⌘Q via CGEvent")
+        let result = fn()
+        rdLog("LockScreen: SACLockScreenImmediate → result=\(result)")
     }
 }

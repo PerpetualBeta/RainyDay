@@ -230,9 +230,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rdLog("showed \(windows.count) screensaver window(s)")
     }
 
+    /// True between the first `dismissWindows(triggerLock:true)` call
+    /// and the eventual teardown. Guards against re-entry — even
+    /// though each ScreensaverWindow removes its eventMonitor on
+    /// first fire, the mouse can cross a display boundary and
+    /// trigger two windows' monitors almost simultaneously. Without
+    /// this flag we'd call LockScreen.lock() twice and arm two
+    /// observe-lock-then-pause cycles.
+    private var lockDismissInProgress = false
+
     private func dismissWindows(triggerLock: Bool) {
         guard !windows.isEmpty else { return }
         if triggerLock {
+            guard !lockDismissInProgress else {
+                rdLog("dismiss with lock — already in progress, ignoring re-entry")
+                return
+            }
+            lockDismissInProgress = true
             // Tearing down on the same frame as the lock-screen
             // animation completes reliably flashes a frame or two of
             // desktop between the saver disappearing and loginwindow's
@@ -274,11 +288,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.pauseAllWindows()
         }
         // Safety net: if no lock notification arrives within 4 seconds
-        // (Accessibility permission denied, lock-screen subsystem hung
-        // — whatever the cause, our LockScreen.lock() keystroke went
-        // nowhere) the saver would otherwise stay up indefinitely with
-        // no lock UI ever appearing over it. Fall back to a normal
-        // teardown so we don't leave the user stuck.
+        // (SACLockScreenImmediate failed, loginwindow hung, framework
+        // symbol removed in a future macOS — whatever the cause) the
+        // saver would otherwise stay up indefinitely with no lock UI
+        // ever appearing over it. Fall back to a normal teardown so we
+        // don't leave the user stuck.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
             guard let self = self, self.lockObserver != nil else { return }
             rdLog("screenIsLocked timeout — lock likely failed, tearing down")
@@ -301,6 +315,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func tearDownWindows() {
         for win in windows { win.deactivate() }
         windows.removeAll()
+        // Clear the re-entry guard so the next dismiss cycle can lock
+        // again. Called from both the normal teardown paths
+        // (non-lock dismiss, post-unlock unlock-observer) and the
+        // safety-net timeout in observeLockThenPause.
+        lockDismissInProgress = false
         rdLog("dismissed screensaver windows")
     }
 

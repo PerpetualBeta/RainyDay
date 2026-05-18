@@ -45,7 +45,6 @@ private final class CursorHidingView: NSView {
         // window covers, independent of key-window status.
         discardCursorRects()
         addCursorRect(bounds, cursor: Self.invisible)
-        rdLog("cursor-hide path 1 (resetCursorRects): registered invisible cursor for bounds=\(bounds)")
     }
 
     override func updateTrackingAreas() {
@@ -73,16 +72,9 @@ private final class CursorHidingView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         Self.invisible.set()
-        // mouseEntered is rare (once per pointer crossing into the
-        // view), so it's a useful "tracking area alive" signal
-        // without flooding the log the way mouseMoved would.
-        rdLog("cursor-hide path 2 (tracking area): mouseEntered, NSCursor.set() called")
     }
 
     override func mouseMoved(with event: NSEvent) {
-        // No log here — mouseMoved fires per-pixel and would flood
-        // the log. Path 2 effectiveness is observable via the
-        // mouseEntered line above.
         Self.invisible.set()
     }
 }
@@ -199,8 +191,7 @@ final class ScreensaverWindow {
         // Activation here is brief and invisible to the user — the
         // saver covers the screen at the same moment.
         NSApp.activate(ignoringOtherApps: true)
-        let hideResult = CGDisplayHideCursor(CGMainDisplayID())
-        rdLog("cursor-hide path 3 (CG): NSApp.activate + CGDisplayHideCursor → result=\(hideResult.rawValue) (0=success) screen=\(screen.localizedName)")
+        CGDisplayHideCursor(CGMainDisplayID())
 
         // Cursor hiding has three paths working together — see the
         // doc comment on `CursorHidingView` for the rationale. The
@@ -226,7 +217,19 @@ final class ScreensaverWindow {
                 matching: [.mouseMoved, .leftMouseDown, .rightMouseDown,
                            .otherMouseDown, .scrollWheel, .keyDown]
             ) { [weak self] event in
-                self?.onDismiss()
+                guard let self = self else { return nil }
+                // Remove the monitor BEFORE invoking dismiss. A
+                // single mouse move generates a burst of mouseMoved
+                // events; without this guard each one fires onDismiss
+                // again, which (in the lock-on-dismiss path) calls
+                // LockScreen.lock() and observeLockThenPause()
+                // repeatedly inside the same millisecond. Observed in
+                // the field: 13 lock attempts from one cursor flick.
+                if let m = self.eventMonitor {
+                    NSEvent.removeMonitor(m)
+                    self.eventMonitor = nil
+                }
+                self.onDismiss()
                 return nil   // swallow — we're dismissing
             }
         }
@@ -242,8 +245,7 @@ final class ScreensaverWindow {
         // subsequent normal app activity won't see the cursor. The
         // CSS rule + cursor rects fall away naturally when the
         // window orders out, no extra cleanup needed for those.
-        let showResult = CGDisplayShowCursor(CGMainDisplayID())
-        rdLog("cursor-show on deactivate: CGDisplayShowCursor → result=\(showResult.rawValue) screen=\(screen.localizedName)")
+        CGDisplayShowCursor(CGMainDisplayID())
         window.orderOut(nil)
     }
 
