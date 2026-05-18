@@ -2,24 +2,51 @@ import AppKit
 import WebKit
 
 /// Container view that hides the cursor while the mouse is anywhere
-/// inside its bounds. Solves the dual-display case: the CSS
-/// `cursor: none` rule inside the WebView only fires when WebKit
-/// processes a mouseMoved event, and macOS only delivers mouseMoved
-/// to the *key* window by default — so on the secondary display
-/// (whose window is never key) the cursor stayed visible. An
-/// `.activeAlways` tracking area sidesteps the key-window restriction
-/// and works for every display.
+/// inside its bounds.
 ///
-/// A 1×1 transparent NSCursor is used instead of `NSCursor.hide()`
-/// because hide() and `CGDisplayHideCursor` both require the calling
-/// app to be frontmost, and Rainy Day is LSUIElement.
+/// Three complementary mechanisms — none of them are bulletproof on
+/// their own under macOS Tahoe (26.x), so we layer all three:
+///
+/// 1. **Cursor rects** (`resetCursorRects` + `addCursorRect`). The
+///    window-server-level mechanism. Works regardless of key-window
+///    status, which is critical on a multi-display saver where only
+///    one window is ever key. Tahoe respects cursor rects even at
+///    `.screenSaver` window level.
+/// 2. **`.activeAlways` tracking area** with `NSCursor.set()` on
+///    enter/move/cursorUpdate. Belt-and-braces for the cursor-rect
+///    path; also covers any window the tracking area has but no
+///    cursor rect (shouldn't happen, but the cost of redundancy is
+///    nil).
+/// 3. **CG-level hide** via `CGDisplayHideCursor`, fired in
+///    `ScreensaverWindow.activate()` after `NSApp.activate(...)` so
+///    the LSUIElement app counts as frontmost long enough for the
+///    call to stick. Hide is ref-counted; matched by `Show` in
+///    `deactivate()`.
+///
+/// The 16×16 transparent NSCursor needs a genuinely-drawn
+/// representation. `NSImage(size:)` alone creates an image with zero
+/// representations — when handed to `NSCursor`, the cursor library
+/// materialises a fallback that may not be transparent. `lockFocus` +
+/// an explicit clear fill guarantees a transparent bitmap rep exists.
 private final class CursorHidingView: NSView {
-    private static let invisible: NSCursor = {
+    static let invisible: NSCursor = {
         let img = NSImage(size: NSSize(width: 16, height: 16))
+        img.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: img.size).fill()
+        img.unlockFocus()
         return NSCursor(image: img, hotSpot: .zero)
     }()
 
     private var trackingArea: NSTrackingArea?
+
+    override func resetCursorRects() {
+        // Window-server cursor rect — fires on every display the
+        // window covers, independent of key-window status.
+        discardCursorRects()
+        addCursorRect(bounds, cursor: Self.invisible)
+        rdLog("cursor-hide path 1 (resetCursorRects): registered invisible cursor for bounds=\(bounds)")
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -29,19 +56,33 @@ private final class CursorHidingView: NSView {
         let area = NSTrackingArea(
             rect: .zero,
             options: [.activeAlways, .inVisibleRect,
-                      .mouseEnteredAndExited, .mouseMoved],
+                      .mouseEnteredAndExited, .mouseMoved,
+                      .cursorUpdate],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(area)
         trackingArea = area
+        // Re-register cursor rects since bounds may have changed.
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        Self.invisible.set()
     }
 
     override func mouseEntered(with event: NSEvent) {
         Self.invisible.set()
+        // mouseEntered is rare (once per pointer crossing into the
+        // view), so it's a useful "tracking area alive" signal
+        // without flooding the log the way mouseMoved would.
+        rdLog("cursor-hide path 2 (tracking area): mouseEntered, NSCursor.set() called")
     }
 
     override func mouseMoved(with event: NSEvent) {
+        // No log here — mouseMoved fires per-pixel and would flood
+        // the log. Path 2 effectiveness is observable via the
+        // mouseEntered line above.
         Self.invisible.set()
     }
 }
@@ -147,16 +188,25 @@ final class ScreensaverWindow {
 
     func activate() {
         window.makeKeyAndOrderFront(nil)
-        // Cursor hiding has two paths working together:
-        //   • CSS `* { cursor: none }` inside the WKWebView (see
-        //     Resources/index.html), which WebKit honours when it
-        //     processes mouseMoved events.
-        //   • `CursorHidingView`'s .activeAlways NSTrackingArea (above),
-        //     which sets a 1×1 transparent NSCursor on enter/move.
-        // The CSS alone wasn't enough: macOS only delivers mouseMoved
-        // to the key window by default, so the secondary display's
-        // saver (never key) saw a visible cursor. The tracking area
-        // covers every display regardless of key status.
+
+        // Tahoe (macOS 26.x) tightened the cursor-visibility policy —
+        // neither the WebKit `cursor: none` rule nor `NSCursor.set()`
+        // alone is reliable for an LSUIElement app at `.screenSaver`
+        // window level. Activate the app so the CG-level hide call
+        // counts as frontmost, then hide system-wide. The hide is
+        // ref-counted (`CGDisplayHideCursor` increments an internal
+        // counter); deactivate() decrements with `CGDisplayShowCursor`.
+        // Activation here is brief and invisible to the user — the
+        // saver covers the screen at the same moment.
+        NSApp.activate(ignoringOtherApps: true)
+        let hideResult = CGDisplayHideCursor(CGMainDisplayID())
+        rdLog("cursor-hide path 3 (CG): NSApp.activate + CGDisplayHideCursor → result=\(hideResult.rawValue) (0=success) screen=\(screen.localizedName)")
+
+        // Cursor hiding has three paths working together — see the
+        // doc comment on `CursorHidingView` for the rationale. The
+        // CG-level hide above is the strongest; cursor rects + the
+        // CSS rule + tracking-area `NSCursor.set()` cover the
+        // remaining gaps.
         // Grace period before installing the dismiss monitor. When
         // the user activates via a global hotkey (⌃⌥⌘R or similar),
         // they release the modifier keys an instant after the press.
@@ -187,10 +237,13 @@ final class ScreensaverWindow {
             NSEvent.removeMonitor(m)
             eventMonitor = nil
         }
-        // Cursor reappears automatically: the CSS rule that hid it
-        // lives inside the WKWebView, and orderOut takes the whole
-        // window (and the WebView with it) off-screen. No native
-        // unhide needed.
+        // Match the `CGDisplayHideCursor` from `activate()`. Hide is
+        // ref-counted — every hide must be paired with a show or
+        // subsequent normal app activity won't see the cursor. The
+        // CSS rule + cursor rects fall away naturally when the
+        // window orders out, no extra cleanup needed for those.
+        let showResult = CGDisplayShowCursor(CGMainDisplayID())
+        rdLog("cursor-show on deactivate: CGDisplayShowCursor → result=\(showResult.rawValue) screen=\(screen.localizedName)")
         window.orderOut(nil)
     }
 
