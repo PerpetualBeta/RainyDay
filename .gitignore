@@ -1,4 +1,5 @@
 .DS_Store
+.build/
 Rainy Day.app/
 RainyDay.saver/
 RainyDayTest.app/
@@ -7,5 +8,4 @@ Resources/RainyDay.iconset/
 *.swiftmodule
 *.swiftdoc
 *.dSYM
-_BuildOutput/
 Installer/_pkg_staging/
