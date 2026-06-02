@@ -15,13 +15,19 @@ final class StatusItem {
 
     private func configure() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            // SF Symbol — light rain glyph. Template image so the
-            // system tints it for the active appearance (light/dark).
-            button.image = NSImage(systemSymbolName: "cloud.drizzle.fill",
-                                    accessibilityDescription: "Rainy Day")
-            button.image?.isTemplate = true
+        applyIcon(to: item)
+
+        // Redraw the status icon when the display configuration changes — the
+        // menu bar's effective thickness can shrink (e.g. moving from a notched
+        // display to an external one) and leave the pre-rendered glyph cropped.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, let item = self.item else { return }
+            self.applyIcon(to: item)
         }
+
         let menu = NSMenu()
         menu.addItem(withTitle: "About Rainy Day",
                      action: #selector(showAbout), keyEquivalent: "")
@@ -43,6 +49,15 @@ final class StatusItem {
             .target = self
         item.menu = menu
         self.item = item
+    }
+
+    /// SF Symbol — light rain glyph. Template image so the system tints
+    /// it for the active appearance (light/dark).
+    private func applyIcon(to item: NSStatusItem) {
+        guard let button = item.button else { return }
+        button.image = NSImage(systemSymbolName: "cloud.drizzle.fill",
+                                accessibilityDescription: "Rainy Day")
+        button.image?.isTemplate = true
     }
 
     @objc private func showAbout() {
