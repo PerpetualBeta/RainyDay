@@ -42,9 +42,12 @@ Click the menu bar icon → **Settings…** for:
 - **Capture** — global hotkey to save a snapshot of the current rain frame to `~/Pictures/Rainy Day/`
 - **Backgrounds** — scene cycle interval (1–30 minutes) and an "Open Backgrounds Folder" button
 - **Wallpaper** — toggle to render rain as your animated desktop wallpaper (see note below)
+- **Show icon in menu bar** — hide the cloud-with-rain status icon while Rainy Day keeps running (the rain and screensaver behaviour is unaffected). Your choice persists across launches, including login auto-start. *Shown only on macOS 14–15 — on macOS 26 (Tahoe) and later, use System Settings → Menu Bar, which provides this natively.*
 - **General** — Launch at Login
 
 All settings persist immediately, no Save/OK button.
+
+If you've hidden the status icon and want it back, simply re-open Rainy Day from your Applications folder — it reappears immediately.
 
 ### Custom backgrounds
 
