@@ -68,6 +68,8 @@ struct RainyDaySettingsContent: View {
                 .foregroundStyle(.secondary)
         }
 
+        MenuBarVisibilitySettings()
+
         Section("Activation") {
             HStack {
                 Text("Idle timeout:")

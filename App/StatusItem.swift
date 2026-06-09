@@ -5,12 +5,23 @@ import AppKit
 /// screensaver immediately, open settings, check for updates, quit.
 final class StatusItem {
 
-    private var item: NSStatusItem!
+    private var item: NSStatusItem?
     private weak var appDelegate: AppDelegate?
 
     init(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
         configure()
+    }
+
+    /// Remove the status item from the menu bar. Called when the user
+    /// hides the icon via Settings. Leaves the display-change observer
+    /// in place (its `applyIcon` is a no-op once `item` is nil), so a
+    /// later re-show via a fresh `StatusItem` rebuilds cleanly.
+    func remove() {
+        if let item {
+            NSStatusBar.system.removeStatusItem(item)
+            self.item = nil
+        }
     }
 
     private func configure() {

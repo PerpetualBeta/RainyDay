@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wakeObservers: [NSObjectProtocol] = []
 
     private var statusItem: StatusItem?
+    private var statusItemVisibilityObserver: NSObjectProtocol?
     private var hotkeyManager = HotkeyManager()
     private var settingsWindow: SettingsWindow?
 
@@ -77,7 +78,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Touch the lazy property so the updater starts and begins
         // its scheduled-check timer.
         _ = sparkleUpdater
-        statusItem = StatusItem(appDelegate: self)
+        createStatusItem()
+        // Create or remove the menu-bar item when the user toggles its
+        // visibility in Settings. The rain overlay is wholly independent
+        // of the status item, so this only affects menu access.
+        statusItemVisibilityObserver = NotificationCenter.default.addObserver(
+            forName: JorvikStatusItemVisibility.didChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.applyStatusItemVisibility()
+        }
         registerStoredHotkeys()
         startIdlePolling()
         applyWallpaperState()
@@ -96,6 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleScreenChange()
         }
         observeWakeAndUnlock()
+    }
+
+    /// Relaunching from /Applications is the user's only way back to a
+    /// hidden menu-bar icon, so restore visibility here.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        JorvikStatusItemVisibility.handleReopen()
+        return true
     }
 
     /// After waking from sleep or unlocking the screen, suppress saver
@@ -130,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         idleTimer?.invalidate()
         if let obs = screenChangeObserver { NotificationCenter.default.removeObserver(obs) }
         if let obs = defaultsObserver { NotificationCenter.default.removeObserver(obs) }
+        if let obs = statusItemVisibilityObserver { NotificationCenter.default.removeObserver(obs) }
         let ws = NSWorkspace.shared.notificationCenter
         let dn = DistributedNotificationCenter.default()
         for obs in wakeObservers {
@@ -376,6 +394,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for w in wallpaperWindows { w.hide() }
         wallpaperWindows.removeAll()
         rdLog("animated wallpaper: hidden")
+    }
+
+    // MARK: - Status item visibility
+
+    /// Build the menu-bar item, unless the user has hidden it. Safe to
+    /// call again after a hide (the item is rebuilt fresh).
+    private func createStatusItem() {
+        guard JorvikStatusItemVisibility.isVisible else { return }
+        statusItem = StatusItem(appDelegate: self)
+    }
+
+    /// Bring the menu-bar item into line with the persisted visibility
+    /// flag. Creates it when shown, removes it when hidden. The rain
+    /// overlay and wallpaper windows are untouched either way.
+    func applyStatusItemVisibility() {
+        if JorvikStatusItemVisibility.isVisible {
+            if statusItem == nil { createStatusItem() }
+        } else if let item = statusItem {
+            item.remove()
+            statusItem = nil
+        }
     }
 
     // MARK: - Status menu actions

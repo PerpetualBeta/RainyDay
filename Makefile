@@ -33,7 +33,8 @@ SWIFT_SOURCES    := App/main.swift App/AppDelegate.swift App/ScreensaverWindow.s
                     App/BackgroundsStore.swift \
                     App/SparkleDelegate.swift App/Log.swift \
                     App/JorvikKit/JorvikAboutView.swift App/JorvikKit/JorvikWindowHelper.swift \
-                    App/JorvikKit/JorvikSettingsView.swift
+                    App/JorvikKit/JorvikSettingsView.swift \
+                    App/JorvikKit/JorvikStatusItemVisibility.swift
 
 EMBEDDED_FRAMEWORKS := Sparkle
 ENTITLEMENTS        := RainyDay.entitlements
