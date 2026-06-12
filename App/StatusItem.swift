@@ -26,6 +26,8 @@ final class StatusItem {
 
     private func configure() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Persist the item's menu-bar slot across launches (and let a user ⌘-drag stick).
+        item.autosaveName = "RainyDayStatusItem"
         applyIcon(to: item)
 
         // Redraw the status icon when the display configuration changes — the
