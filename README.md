@@ -86,7 +86,7 @@ Rainy Day is a regular `.app` that hosts an MIT-licensed WebGL2 raindrop effect 
 - **JorvikKit** (`App/JorvikKit/`) — vendored shared components from the Jorvik suite (About modal, Settings frame, Update checker, window helper).
 - **Sparkle** (`Sparkle.framework`) — vendored 2.9.1 binary, embedded under `Contents/Frameworks/`.
 
-The pattern of "screensaver delivered as a regular `.app`" is documented as a Jorvik convention in `kb/conventions/screensaver-as-app.md` (KB) and is the recommended starting point for any future Jorvik product that wants to host non-trivial rendering at fullscreen.
+"Screensaver delivered as a regular `.app`" is now the default shape for Jorvik screensavers, and the recommended starting point for anything that wants to host non-trivial rendering at fullscreen. [ASCII Saver](https://jorviksoftware.cc/screensavers/asciisaver) followed, for a different reason again — a `.saver` cannot hold a camera permission.
 
 ## Building from source
 
