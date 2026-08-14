@@ -41,24 +41,22 @@ struct RainyDaySettingsContent: View {
     @AppStorage("lockOnDismiss")      private var lockOnDismiss: Bool = false
     @AppStorage("animatedWallpaper")  private var animatedWallpaper: Bool = false
 
-    /// AXIsProcessTrusted flips immediately after the user grants
-    /// access in System Settings, but SwiftUI doesn't see the change
-    /// without a redraw trigger. Re-poll when the window becomes key.
-    @State private var accessibilityGranted: Bool = AXIsProcessTrusted()
+    /// Kept current by JorvikKit — see `JorvikPermissionWatcher` for why this needs a
+    /// watcher rather than a read, and why reading it more often makes it worse.
+    @StateObject private var accessibility = JorvikPermissionWatcher.accessibility()
 
     var body: some View {
         Section("Permissions") {
             HStack {
                 Text("Accessibility")
                 Spacer()
-                if accessibilityGranted {
+                if accessibility.isGranted {
                     Label("Granted", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.caption)
                 } else {
                     Button("Grant Access") {
-                        let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
-                        AXIsProcessTrustedWithOptions(opts)
+                        JorvikPermissionWatcher.promptForAccessibility()
                     }
                     .font(.caption)
                 }
@@ -128,9 +126,6 @@ struct RainyDaySettingsContent: View {
             Text("Renders rain at the desktop layer behind icons and apps. Independent of screensaver activation; persists until you turn it off.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-        .onAppear {
-            accessibilityGranted = AXIsProcessTrusted()
         }
     }
 
