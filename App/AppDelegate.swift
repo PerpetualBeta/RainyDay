@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windows: [ScreensaverWindow] = []
     private var wallpaperWindows: [WallpaperWindow] = []
     private var screenChangeObserver: NSObjectProtocol?
+    /// Signature of the display layout the currently-live windows were
+    /// built for. `nil` when no windows exist. See `handleScreenChange`.
+    private var builtForLayout: String?
     private var defaultsObserver: NSObjectProtocol?
     /// Earliest moment the idle-tick is allowed to dismiss after an
     /// activation. Activating via hotkey (or status-menu click) is
@@ -256,7 +259,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windows.append(win)
             win.activate()
         }
-        rdLog("showed \(windows.count) screensaver window(s)")
+        builtForLayout = Self.screenLayoutSignature()
+        rdLog("showed \(windows.count) screensaver window(s) for layout \(builtForLayout ?? "?")")
     }
 
     /// True between the first `dismissWindows(triggerLock:true)` call
@@ -349,10 +353,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (non-lock dismiss, post-unlock unlock-observer) and the
         // safety-net timeout in observeLockThenPause.
         lockDismissInProgress = false
+        if wallpaperWindows.isEmpty { builtForLayout = nil }
         rdLog("dismissed screensaver windows")
     }
 
+    /// Fingerprint of the physical display layout — the only thing a
+    /// screensaver or wallpaper window is actually built from.
+    ///
+    /// Deliberately excludes `visibleFrame`. `visibleFrame` shrinks and
+    /// grows as the menu bar and Dock come and go, and a fullscreen
+    /// window at `.screenSaver` level covers the menu bar — so a
+    /// signature including it would change as a *result* of showing our
+    /// own window. See `handleScreenChange` for why that matters.
+    ///
+    /// Sorted by display ID so a reordering of `NSScreen.screens` with
+    /// unchanged geometry reads as no change. Frames are rounded to
+    /// whole points: display frames are integral in practice, and
+    /// rounding removes floating-point jitter from the comparison.
+    private static func screenLayoutSignature() -> String {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return NSScreen.screens.map { screen -> String in
+            let id = (screen.deviceDescription[key] as? NSNumber)?.uint32Value ?? 0
+            let f = screen.frame
+            return String(
+                format: "%u:%d,%d,%dx%d@%.1f",
+                id,
+                Int(f.origin.x.rounded()), Int(f.origin.y.rounded()),
+                Int(f.size.width.rounded()), Int(f.size.height.rounded()),
+                screen.backingScaleFactor)
+        }
+        .sorted()
+        .joined(separator: "|")
+    }
+
+    /// `NSApplication.didChangeScreenParametersNotification` does not
+    /// mean "a display was connected or disconnected". It fires for any
+    /// change to the screen configuration, and on macOS 27 showing a
+    /// window at `.screenSaver` level is itself such a change — the
+    /// notification arrives 1-3ms after `win.activate()`, every time.
+    ///
+    /// Rebuilding unconditionally therefore re-triggers the very
+    /// notification being handled: teardown, rebuild, notification,
+    /// teardown, rebuild. Measured at ~30 rebuilds/second, 13,119 in a
+    /// single day. The user-visible symptom is not a flicker but a
+    /// frozen scene: each rebuild reloads `index.html`, which paints
+    /// the first background (`coast-beach.jpg`, alphabetically first)
+    /// and starts a fresh `cycleMinutes` rotation timer. A page that
+    /// lives 35ms never reaches a 5-minute timer, so the saver shows
+    /// that one image forever.
+    ///
+    /// The fix is to rebuild only when the thing the windows depend on
+    /// actually differs. Showing a window does not move a display, so
+    /// the signature is unchanged and the loop stops at the first hop.
     private func handleScreenChange() {
+        // Nothing on screen to rebuild — nothing to decide.
+        guard !windows.isEmpty || !wallpaperWindows.isEmpty else { return }
+
+        let current = Self.screenLayoutSignature()
+        guard current != builtForLayout else {
+            rdLog("screen parameters changed but display layout is unchanged (\(current)) — not rebuilding")
+            return
+        }
+        rdLog("display layout changed: \(builtForLayout ?? "none") → \(current)")
+
         // Recreate any wallpaper windows so they match the new layout.
         if !wallpaperWindows.isEmpty {
             rdLog("screen layout changed — recreating wallpaper windows")
@@ -387,12 +450,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.show()
             wallpaperWindows.append(win)
         }
+        builtForLayout = Self.screenLayoutSignature()
         rdLog("animated wallpaper: showed \(wallpaperWindows.count) window(s)")
     }
 
     private func tearDownWallpaperWindows() {
         for w in wallpaperWindows { w.hide() }
         wallpaperWindows.removeAll()
+        if windows.isEmpty { builtForLayout = nil }
         rdLog("animated wallpaper: hidden")
     }
 
