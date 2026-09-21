@@ -122,6 +122,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// activation for a grace period (30s). System idle time keeps
     /// counting during sleep/lock, so without this the user would
     /// fight the saver immediately on every wake/unlock.
+    /// Named once rather than spelled at each use — it is matched against a
+    /// notification name as well as observed, and two spellings of the same
+    /// string is how that kind of check silently stops matching.
+    static let screenIsUnlockedNotification = "com.apple.screenIsUnlocked"
+
+    /// Whether waking should LOCK the screen rather than merely dismiss the saver.
+    ///
+    /// Pulled out as a pure function because it decides a security behaviour, and
+    /// a security behaviour should be checkable without a machine to put to sleep.
+    /// All four conditions have to hold:
+    ///
+    /// - **It is a wake, not an unlock.** An unlock means the user has just
+    ///   authenticated; locking them straight back out would be absurd.
+    /// - **The user asked for lock-on-dismiss.** Otherwise this is not our business.
+    /// - **The saver is actually up.** Waking a Mac that was not running the saver
+    ///   must not lock it — that would be an app seizing a machine it was not
+    ///   covering.
+    /// - **The screen is not already locked.** Usually it is: with the screen-lock
+    ///   delay set to immediate, macOS locks the session about a second after the
+    ///   display sleeps. Locking again would be a harmless no-op, but asking first
+    ///   keeps the log honest about which of the two actually did it.
+    static func shouldLockOnWake(notification: String,
+                                 lockOnDismiss: Bool,
+                                 saverIsUp: Bool,
+                                 screenAlreadyLocked: Bool) -> Bool {
+        notification != screenIsUnlockedNotification
+            && lockOnDismiss
+            && saverIsUp
+            && !screenAlreadyLocked
+    }
+
     private func observeWakeAndUnlock() {
         let ws = NSWorkspace.shared.notificationCenter
         let dn = DistributedNotificationCenter.default()
@@ -133,9 +164,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
             self.activationAllowedAfter = Date().addingTimeInterval(30)
             rdLog("wake/unlock event (\(note.name.rawValue)) — activation suppressed for 30s")
-            // Also dismiss any saver windows that may already be up
-            // (e.g., system displayed lock above an active saver session).
-            self.dismissWindows(triggerLock: false)
+
+            // The three notifications do NOT mean the same thing, and treating
+            // them as one left lock-on-dismiss depending on a setting this app
+            // does not own.
+            //
+            // An **unlock** means the user has just authenticated. Locking again
+            // would be absurd, so dismiss and leave it.
+            //
+            // A **wake** means the machine came back with the saver still up. If
+            // lock-on-dismiss is on, the screen must not be handed back unlocked.
+            // macOS usually has it covered already — with the screen-lock delay
+            // set to immediate, loginwindow locks the session about a second
+            // after the display sleeps, measured. But that delay is a System
+            // Settings value: set it to five minutes and the same code leaves a
+            // five-minute hole with the feature switched on. So check rather
+            // than assume, and lock only when it is genuinely needed.
+            let mustLock = Self.shouldLockOnWake(
+                notification: note.name.rawValue,
+                lockOnDismiss: self.lockOnDismiss,
+                saverIsUp: !self.windows.isEmpty,
+                screenAlreadyLocked: LockScreen.screenIsLocked)
+            if mustLock {
+                rdLog("woke with the saver up and the screen UNLOCKED — locking, not just dismissing")
+            }
+            self.dismissWindows(triggerLock: mustLock)
         }
 
         wakeObservers.append(ws.addObserver(
@@ -145,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main,
             using: onWake))
         wakeObservers.append(dn.addObserver(
-            forName: Notification.Name("com.apple.screenIsUnlocked"),
+            forName: Notification.Name(Self.screenIsUnlockedNotification),
             object: nil, queue: .main, using: onWake))
     }
 
