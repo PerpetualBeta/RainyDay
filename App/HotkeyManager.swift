@@ -21,8 +21,12 @@ final class HotkeyManager {
     private struct Registered {
         let ref: EventHotKeyRef
         let handler: () -> Void
+        /// Kept so a suspended hotkey can be registered again unchanged.
+        let cfg: HotkeyConfig
     }
     private var slots: [Slot: Registered] = [:]
+    /// What was registered before recording suspended it.
+    private var suspendedSlots: [Slot: Registered] = [:]
     private var eventHandler: EventHandlerRef?
 
     init() {
@@ -32,6 +36,27 @@ final class HotkeyManager {
     deinit {
         if let h = eventHandler { RemoveEventHandler(h) }
         for (_, r) in slots { UnregisterEventHotKey(r.ref) }
+    }
+
+    /// Unregisters every hotkey while a shortcut recorder is listening, and
+    /// puts them back afterwards.
+    ///
+    /// Carbon hands a registered hotkey to its handler before the keystroke
+    /// reaches the app, so without this the shortcut already set fires the
+    /// action instead of being recorded — and can never be changed, because the
+    /// recorder never sees the keys. Reported 2026-09-21: pressing the existing
+    /// activation shortcut in Settings started the screensaver.
+    func setRecordingSuspended(_ suspended: Bool) {
+        if suspended {
+            guard suspendedSlots.isEmpty else { return }
+            for (_, r) in slots { UnregisterEventHotKey(r.ref) }
+            suspendedSlots = slots
+            slots = [:]
+        } else {
+            let restore = suspendedSlots
+            suspendedSlots = [:]
+            for (slot, r) in restore { register(r.cfg, slot: slot, handler: r.handler) }
+        }
     }
 
     func register(_ cfg: HotkeyConfig, slot: Slot, handler: @escaping () -> Void) {
@@ -55,7 +80,7 @@ final class HotkeyManager {
             rdLog("HotkeyManager: register failed status=\(status) slot=\(slot.rawValue)")
             return
         }
-        slots[slot] = Registered(ref: ref, handler: handler)
+        slots[slot] = Registered(ref: ref, handler: handler, cfg: cfg)
         rdLog("HotkeyManager: registered slot=\(slot.rawValue) keyCode=\(cfg.keyCode) mods=\(modifiers)")
     }
 

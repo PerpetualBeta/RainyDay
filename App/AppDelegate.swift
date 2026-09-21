@@ -606,15 +606,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             // Build the shortcut rows with their on-change callbacks
             // wired to update HotkeyManager registration in real time.
+            // While the recorder is listening, the app's own hotkeys come down
+            // so that pressing the shortcut already set records it instead of
+            // starting the saver.
+            let suspend: (Bool) -> Void = { [weak self] recording in
+                self?.hotkeyManager.setRecordingSuspended(recording)
+            }
             let activate = JorvikHotkeyRow(
                 label: "Activate now",
                 storageKey: activateHotkeyKey,
-                onChange: { [weak self] cfg in self?.activateHotkeyChanged(cfg) }
+                onChange: { [weak self] cfg in self?.activateHotkeyChanged(cfg) },
+                onRecordingChanged: suspend
             )
             let screenshot = JorvikHotkeyRow(
                 label: "Screenshot",
                 storageKey: screenshotHotkeyKey,
-                onChange: { [weak self] cfg in self?.screenshotHotkeyChanged(cfg) }
+                onChange: { [weak self] cfg in self?.screenshotHotkeyChanged(cfg) },
+                onRecordingChanged: suspend
             )
             settingsWindow = SettingsWindow(
                 activateRecorder: activate,
