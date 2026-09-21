@@ -604,13 +604,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func openSettings() {
         if settingsWindow == nil {
-            // Build the recorder views with their on-change callbacks
+            // Build the shortcut rows with their on-change callbacks
             // wired to update HotkeyManager registration in real time.
-            let activate = HotkeyRecorderView(
+            let activate = JorvikHotkeyRow(
+                label: "Activate now",
                 storageKey: activateHotkeyKey,
                 onChange: { [weak self] cfg in self?.activateHotkeyChanged(cfg) }
             )
-            let screenshot = HotkeyRecorderView(
+            let screenshot = JorvikHotkeyRow(
+                label: "Screenshot",
                 storageKey: screenshotHotkeyKey,
                 onChange: { [weak self] cfg in self?.screenshotHotkeyChanged(cfg) }
             )

@@ -8,10 +8,10 @@ import ApplicationServices
 /// live in `RainyDaySettingsContent`.
 final class SettingsWindow {
 
-    let activateRecorder: HotkeyRecorderView
-    let screenshotRecorder: HotkeyRecorderView
+    let activateRecorder: JorvikHotkeyRow
+    let screenshotRecorder: JorvikHotkeyRow
 
-    init(activateRecorder: HotkeyRecorderView, screenshotRecorder: HotkeyRecorderView) {
+    init(activateRecorder: JorvikHotkeyRow, screenshotRecorder: JorvikHotkeyRow) {
         self.activateRecorder = activateRecorder
         self.screenshotRecorder = screenshotRecorder
     }
@@ -37,8 +37,8 @@ final class SettingsWindow {
 /// it made was measured and found false.
 struct RainyDaySettingsContent: View {
 
-    let activateRecorder: HotkeyRecorderView
-    let screenshotRecorder: HotkeyRecorderView
+    let activateRecorder: JorvikHotkeyRow
+    let screenshotRecorder: JorvikHotkeyRow
 
     @AppStorage("idleMinutes")        private var idleMinutes: Int = 5
     @AppStorage("cycleMinutes")       private var cycleMinutes: Int = 5
@@ -83,12 +83,7 @@ struct RainyDaySettingsContent: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack {
-                Text("Activate now")
-                Spacer()
-                activateRecorder
-                    .frame(width: 180, height: 24)
-            }
+            activateRecorder
         }
 
         Section("On dismiss") {
@@ -97,12 +92,7 @@ struct RainyDaySettingsContent: View {
 
         Section("Capture") {
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Screenshot")
-                    Spacer()
-                    screenshotRecorder
-                        .frame(width: 180, height: 24)
-                }
+                screenshotRecorder
                 Text("Saves to ~/Pictures/Rainy Day/")
                     .font(.caption)
                     .foregroundStyle(.secondary)
