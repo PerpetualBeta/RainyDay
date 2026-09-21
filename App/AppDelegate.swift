@@ -281,10 +281,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Set while activation is being held back by a locked screen, so the
+    /// reason is logged once per lock rather than on every tick.
+    private var activationHeldByLock = false
+
     private func tick() {
         let idle = systemIdleSeconds()
         if windows.isEmpty {
             if idle >= idleThresholdSeconds && Date() >= activationAllowedAfter {
+                // Never start behind a lock screen. loginwindow sits above the
+                // saver level, so nothing would be visible: the app would spin
+                // a WebGL render loop for an audience of nobody until someone
+                // came back to the machine.
+                //
+                // There was no guard here at all, and this log proves the path
+                // is taken: an idle-driven activation began 15 minutes into a
+                // locked span on 2026-07-07 — 15 minutes being the threshold.
+                //
+                // Rainy Day only wastes power doing this. The same gap in ASCII
+                // Saver turns the camera on behind the lock screen, which is
+                // where it was found.
+                if LockScreen.screenIsLocked {
+                    if !activationHeldByLock {
+                        rdLog("idle threshold reached but the screen is locked — not activating")
+                        activationHeldByLock = true
+                    }
+                    return
+                }
+                activationHeldByLock = false
                 rdLog("idle=\(Int(idle))s ≥ threshold — activating")
                 showWindows()
             }
