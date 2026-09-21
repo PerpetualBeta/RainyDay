@@ -126,10 +126,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ws = NSWorkspace.shared.notificationCenter
         let dn = DistributedNotificationCenter.default()
 
-        let onWake: (Notification) -> Void = { [weak self] _ in
+        // Named in the log, because three different notifications share this
+        // closure and one message for three causes is what turned a four-second
+        // race into a fortnight of log-reading.
+        let onWake: (Notification) -> Void = { [weak self] note in
             guard let self = self else { return }
             self.activationAllowedAfter = Date().addingTimeInterval(30)
-            rdLog("wake/unlock event — activation suppressed for 30s")
+            rdLog("wake/unlock event (\(note.name.rawValue)) — activation suppressed for 30s")
             // Also dismiss any saver windows that may already be up
             // (e.g., system displayed lock above an active saver session).
             self.dismissWindows(triggerLock: false)
@@ -307,6 +310,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var lockObserver: NSObjectProtocol?
     private func observeLockThenPause() {
+        // Nothing to wait for if the screen is already locked. macOS locks the
+        // session itself when the display sleeps, so a saver that has been up
+        // past the display-sleep timeout is dismissed onto an already-locked
+        // session: `SACLockScreenImmediate` succeeds at doing nothing, and no
+        // transition means no `com.apple.screenIsLocked` will ever arrive.
+        // Waiting four seconds for it and then declaring failure is what the
+        // log did for four months. Pause and carry on instead — the outcome is
+        // the same as a lock that confirmed, because the screen is locked.
+        if LockScreen.screenIsLocked {
+            rdLog("screen already locked before the request — pausing, no handshake needed")
+            pauseAllWindows()
+            return
+        }
         let center = DistributedNotificationCenter.default()
         // Idempotent — clear any stale observer from a previous cycle.
         if let prev = lockObserver { center.removeObserver(prev); lockObserver = nil }
@@ -328,9 +344,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // don't leave the user stuck.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
             guard let self = self, self.lockObserver != nil else { return }
-            rdLog("screenIsLocked timeout — lock likely failed, tearing down")
             self.cleanupLockObserver()
-            self.tearDownWindows()
+            // Ask, do not assume. The old line here read "lock likely failed",
+            // which the app had no way of knowing: all it had observed was a
+            // notification that did not arrive. Those are different facts, and
+            // conflating them sent three investigations down the wrong road.
+            if LockScreen.screenIsLocked {
+                rdLog("no screenIsLocked in 4s, but the screen IS locked — pausing")
+                self.pauseAllWindows()
+            } else {
+                rdLog("no screenIsLocked in 4s and the screen is NOT locked — tearing down")
+                self.tearDownWindows()
+            }
         }
     }
 
@@ -346,6 +371,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func tearDownWindows() {
+        // A teardown ends the dismiss this handshake belonged to, so the
+        // observer has nothing left to hear. Leaving it armed let a wake
+        // arriving mid-handshake orphan it rather than cancel it.
+        cleanupLockObserver()
         for win in windows { win.deactivate() }
         windows.removeAll()
         // Clear the re-entry guard so the next dismiss cycle can lock
