@@ -28,7 +28,7 @@ SWIFT_FRAMEWORKS := Cocoa WebKit CoreGraphics ServiceManagement
 SWIFT_SOURCES    := App/main.swift App/AppDelegate.swift App/ScreensaverWindow.swift \
                     App/WallpaperWindow.swift \
                     App/StatusItem.swift App/SettingsWindow.swift \
-                    App/HotkeyRecorder.swift App/HotkeyManager.swift \
+                    App/HotkeyManager.swift \
                     App/LockScreen.swift App/Screenshot.swift \
                     App/BackgroundsStore.swift \
                     App/SparkleDelegate.swift App/Log.swift \
