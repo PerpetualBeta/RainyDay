@@ -42,7 +42,6 @@ Eight photographic backgrounds rotate through every five minutes (configurable, 
 
 Click the menu bar icon → **Settings…** for:
 
-- **Permissions** — accessibility status (required only if you enable Lock Screen on dismiss)
 - **Activation** — idle timeout (minutes), and a global "Activate now" hotkey
 - **On dismiss** — toggle to lock the screen automatically when the saver dismisses
 - **Capture** — global hotkey to save a snapshot of the current rain frame to `~/Pictures/Rainy Day/`
@@ -77,7 +76,7 @@ Updates are EdDSA-signed; your copy will only install genuine Jorvik Software re
 
 - **No telemetry.** No usage reporting, no log file at all unless you explicitly turn one on (`defaults write cc.jorviksoftware.RainyDay debugLogging -bool YES` writes timestamped lifecycle lines to `~/Library/Logs/Rainy Day/rainyday.log`; off by default), no network requests beyond Sparkle's appcast fetch.
 - **No camera, microphone, network access.** Backgrounds load from your local Application Support folder; the WebGL rendering is entirely client-side.
-- **Permissions:** Screen Recording **not** required. Accessibility is requested only if you enable "Lock screen when dismissed" — it's needed because that feature simulates the system Lock Screen keyboard shortcut.
+- **No permissions at all.** Not Screen Recording, not Accessibility, nothing. The screen lock is an IPC call into `loginwindow` and the hotkeys are registered with Carbon, neither of which requires anything to be granted. Verified by revoking Accessibility and watching the lock still work.
 
 ## Multi-display
 
