@@ -73,18 +73,21 @@ struct RainyDaySettingsContent: View {
 
         Section("Activation") {
             HStack {
-                Text("Idle timeout:")
+                Text("Idle timeout")
+                Spacer()
                 TextField("", value: $idleMinutes, formatter: Self.minutes(min: 1, max: 1440))
+                    .labelsHidden()
                     .frame(width: 60)
                     .multilineTextAlignment(.trailing)
                 Text("minutes")
-                Spacer()
+                    .foregroundStyle(.secondary)
             }
+
             HStack {
-                Text("Activate now:")
+                Text("Activate now")
+                Spacer()
                 activateRecorder
                     .frame(width: 180, height: 24)
-                Spacer()
             }
         }
 
@@ -93,42 +96,61 @@ struct RainyDaySettingsContent: View {
         }
 
         Section("Capture") {
-            HStack {
-                Text("Screenshot:")
-                screenshotRecorder
-                    .frame(width: 180, height: 24)
-                Spacer()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Screenshot")
+                    Spacer()
+                    screenshotRecorder
+                        .frame(width: 180, height: 24)
+                }
+                Text("Saves to ~/Pictures/Rainy Day/")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text("Saves to ~/Pictures/Rainy Day/")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
 
         Section("Backgrounds") {
             HStack {
-                Text("Cycle every:")
+                Text("Cycle every")
+                Spacer()
                 TextField("", value: $cycleMinutes, formatter: Self.minutes(min: 1, max: 30))
+                    .labelsHidden()
                     .frame(width: 60)
                     .multilineTextAlignment(.trailing)
                 Text("minutes")
-                Spacer()
+                    .foregroundStyle(.secondary)
             }
-            HStack {
-                Button("Open Backgrounds Folder") {
-                    BackgroundsStore.revealInFinder()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Backgrounds folder")
+                    Spacer()
+                    Button("Open") {
+                        BackgroundsStore.revealInFinder()
+                    }
                 }
-                Spacer()
+                Text("Drop JPG/PNG/HEIC files into the folder. An empty folder shows a notice instead of rain.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text("Drop JPG/PNG/HEIC files into the folder. Empty folder shows a notice instead of rain.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
 
         Section("Wallpaper") {
-            Toggle("Use as animated desktop wallpaper", isOn: $animatedWallpaper)
-            Text("Renders rain at the desktop layer behind icons and apps. Independent of screensaver activation; persists until you turn it off.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // The label is its own Text and the Toggle is labelsHidden, rather than
+            // Toggle("…", isOn:) — a control carrying its own label inside a VStack
+            // loses the Form's label column, which is how Release Manager 2.0.40
+            // shipped a row whose text field drew at zero width.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Use as animated desktop wallpaper")
+                    Spacer()
+                    Toggle("", isOn: $animatedWallpaper)
+                        .labelsHidden()
+                }
+                Text("Renders rain at the desktop layer behind icons and apps. Independent of screensaver activation; persists until you turn it off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

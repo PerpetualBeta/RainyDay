@@ -45,7 +45,7 @@ Click the menu bar icon → **Settings…** for:
 - **Activation** — idle timeout (minutes), and a global "Activate now" hotkey
 - **On dismiss** — toggle to lock the screen automatically when the saver dismisses
 - **Capture** — global hotkey to save a snapshot of the current rain frame to `~/Pictures/Rainy Day/`
-- **Backgrounds** — scene cycle interval (1–30 minutes) and an "Open Backgrounds Folder" button
+- **Backgrounds** — scene cycle interval (1–30 minutes) and a **Backgrounds folder** row with an **Open** button
 - **Wallpaper** — toggle to render rain as your animated desktop wallpaper (see note below)
 - **Show icon in menu bar** — hide the cloud-with-rain status icon while Rainy Day keeps running (the rain and screensaver behaviour is unaffected). Your choice persists across launches, including login auto-start. *Shown only on macOS 14–15 — on macOS 26 (Tahoe) and later, use System Settings → Menu Bar, which provides this natively.*
 - **General** — Launch at Login
