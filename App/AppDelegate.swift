@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: StatusItem?
     private var statusItemVisibilityObserver: NSObjectProtocol?
-    private var hotkeyManager = HotkeyManager()
+    private var hotkeyManager = JorvikHotkeyManager(signature: JorvikHotkeyManager.rainyDaySignature)
     private var settingsWindow: SettingsWindow?
 
     // Sparkle update controller. Owns the SPUStandardUpdaterController
