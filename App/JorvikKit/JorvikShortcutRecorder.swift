@@ -23,6 +23,26 @@ struct JorvikShortcutRecorder: View {
     var onClear: (() -> Void)?
     var eventTapToDisable: CFMachPort?
 
+    /// Whether a shortcut is actually stored, asked of the bindings rather than
+    /// inferred from `shortcutText`.
+    ///
+    /// The Clear button used to appear whenever the display string was
+    /// non-empty, which works only for a call site that returns "" when nothing
+    /// is set. An app that shows a placeholder instead, "Not set" for example,
+    /// got a Clear button permanently, including with nothing to clear. Reading
+    /// a localised label to decide a state is the fault; this reads the state.
+    ///
+    /// `keyCode == 0` is `a`, so it cannot mean "unset" on its own. It does not
+    /// have to: recording requires command, control or option, so a stored
+    /// shortcut always carries a modifier. This is the same test
+    /// `JorvikHotkeyManager.register` uses to decide whether a slot is worth
+    /// registering.
+    private var isSet: Bool { keyCode != 0 || !modifiers.isEmpty }
+
+    /// Set when a keypress was rejected for carrying no modifier, so the prompt
+    /// can say why instead of appearing to ignore the user.
+    @State private var needsModifier = false
+
     /// Called with `true` when recording begins and `false` when it ends.
     ///
     /// A global hotkey registered through Carbon's `RegisterEventHotKey` is
@@ -58,7 +78,10 @@ struct JorvikShortcutRecorder: View {
             Text(label)
             Spacer()
             if isRecording {
-                Text(L10n.string("shortcut.press", defaultValue: "Press shortcut\u{2026}"))
+                Text(needsModifier
+                     ? L10n.string("shortcut.needs_modifier",
+                                   defaultValue: "Hold \u{2318}, \u{2303} or \u{2325}")
+                     : L10n.string("shortcut.press", defaultValue: "Press shortcut\u{2026}"))
                     .foregroundStyle(.orange)
                     .font(.caption)
                 Button(L10n.string("shortcut.cancel", defaultValue: "Cancel")) {
@@ -69,7 +92,7 @@ struct JorvikShortcutRecorder: View {
                 Text(shortcutText)
                     .foregroundStyle(.secondary)
                     .font(.caption)
-                if onClear != nil, !shortcutText.isEmpty {
+                if onClear != nil, isSet {
                     Button(L10n.string("shortcut.clear", defaultValue: "Clear")) {
                         onClear?()
                         shortcutText = displayString()
@@ -97,6 +120,7 @@ struct JorvikShortcutRecorder: View {
         }
 
         isRecording = true
+        needsModifier = false
         onRecordingChanged?(true)
 
         let handleEvent = { (event: NSEvent) in
@@ -109,8 +133,18 @@ struct JorvikShortcutRecorder: View {
                 return
             }
 
-            // Require at least one modifier
+            // Require at least one modifier. Silently swallowing the press
+            // made the recorder look broken: nothing happened and nothing said
+            // why. Now the prompt changes instead.
+            //
+            // Glyphs rather than the words "command, control or option",
+            // against the estate's usual rule. That rule is about prose, where
+            // the symbols are harder to read than the words. This is a key cap
+            // being named inside a shortcut control that already draws the
+            // shortcut itself in glyphs, and matching what macOS puts in its own
+            // menus beats internal consistency here. Jonathan's call, 2026-09-22.
             guard flags.contains(.command) || flags.contains(.control) || flags.contains(.option) else {
+                needsModifier = true
                 return
             }
 
@@ -131,6 +165,7 @@ struct JorvikShortcutRecorder: View {
     private func stopRecording() {
         if let m = localMonitor { NSEvent.removeMonitor(m); localMonitor = nil }
         isRecording = false
+        needsModifier = false
 
         // Re-enable event tap
         if let tap = eventTapToDisable {
