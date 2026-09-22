@@ -58,7 +58,23 @@ struct JorvikShortcutRecorder: View {
     /// record correctly but should still use this to avoid firing the action.
     var onRecordingChanged: ((Bool) -> Void)?
 
-    @State private var shortcutText: String = ""
+    /// The shortcut as text, read every time the body is evaluated.
+    ///
+    /// **This used to be `@State`, set once in `.onAppear`, and that was a
+    /// silent bug.** SwiftUI runs a child's `.onAppear` before its parent's,
+    /// measured 2026-09-22, so when the call site loads its stored shortcut in
+    /// its own `.onAppear` — which `JorvikHotkeyRow` does — this view had
+    /// already snapshotted the value from *before* the load. The row then showed
+    /// no shortcut at all, for the life of the window, however many were set.
+    ///
+    /// It read as "nothing is bound here", and it was believed: Rainy Day's
+    /// activation shortcut was reported as unset when it was registered and
+    /// working the whole time.
+    ///
+    /// Computing it removes the question of when to refresh. Every path that
+    /// used to reassign it — record, clear, cancel, appear — now needs nothing,
+    /// because changing the bindings re-evaluates the body.
+    private var shortcutText: String { displayString() }
     @State private var isRecording = false
     @State private var localMonitor: Any?
     // There is no global key monitor, deliberately.
@@ -95,7 +111,6 @@ struct JorvikShortcutRecorder: View {
                 if onClear != nil, isSet {
                     Button(L10n.string("shortcut.clear", defaultValue: "Clear")) {
                         onClear?()
-                        shortcutText = displayString()
                     }
                     .font(.caption)
                 }
@@ -104,9 +119,6 @@ struct JorvikShortcutRecorder: View {
                 }
                 .font(.caption)
             }
-        }
-        .onAppear {
-            shortcutText = displayString()
         }
         .onDisappear {
             stopRecording()
@@ -129,7 +141,6 @@ struct JorvikShortcutRecorder: View {
             // Escape cancels
             if event.keyCode == 53 {
                 stopRecording()
-                shortcutText = displayString()
                 return
             }
 
@@ -153,7 +164,6 @@ struct JorvikShortcutRecorder: View {
             modifiers = cleanFlags
             onChanged?()
             stopRecording()
-            shortcutText = displayString()
         }
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
