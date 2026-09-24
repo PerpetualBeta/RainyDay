@@ -3,6 +3,13 @@ import CoreGraphics
 import ServiceManagement
 import Sparkle
 
+extension Notification.Name {
+    /// Posted whenever `activationSuspended` changes, from either the status
+    /// menu or the Settings toggle, so the status icon stays honest about
+    /// which one is true regardless of which one changed it.
+    static let activationSuspendedChanged = Notification.Name("RainyDayActivationSuspendedChanged")
+}
+
 /// App lifecycle + idle-driven screensaver window controller. Also
 /// owns the status item, settings window, and hotkey infrastructure.
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -30,6 +37,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// during sleep, and would already be well past our threshold).
     private var activationAllowedAfter: Date = .distantPast
     private var wakeObservers: [NSObjectProtocol] = []
+    /// True while the saver windows are up but paused because something
+    /// covers them: the lock screen or a sleeping display. See
+    /// `pauseForCover(reason:)`. Also stops a display-layout change from
+    /// rebuilding them, which would start the rain again. See
+    /// `handleScreenChange`. Cleared in `tearDownWindows`.
+    private var pausedForCover = false
+    /// True from `screensDidSleep` until the next wake or unlock, which
+    /// clears it in `observeWakeAndUnlock`. The idle tick will not start the
+    /// saver into a dark display.
+    private var displayAsleep = false
+    /// True between `com.apple.screensaver.didstart` and its `didstop`:
+    /// macOS's own screen saver, not ours. Tracked from the notifications
+    /// because there is no query for it. The idle tick will not start the
+    /// saver on top of it.
+    private var nativeScreensaverRunning = false
 
     private var statusItem: StatusItem?
     private var statusItemVisibilityObserver: NSObjectProtocol?
@@ -60,11 +82,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lockOnDismiss: Bool {
         UserDefaults.standard.bool(forKey: "lockOnDismiss")
     }
+    /// User-requested "don't activate on idle right now", distinct from
+    /// every reason the app holds activation back by itself (a lock, a
+    /// call): this one is someone explicitly asking. Activate Now still
+    /// works; only the idle tick checks it.
+    private var activationSuspended: Bool {
+        UserDefaults.standard.bool(forKey: "activationSuspended")
+    }
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        rdLog("applicationDidFinishLaunching — idle threshold \(Int(idleThresholdSeconds))s")
+        rdLog("applicationDidFinishLaunching — idle threshold \(Int(idleThresholdSeconds))s"
+              + (UserDefaults.standard.bool(forKey: "activationSuspended") ? ", activation SUSPENDED from a previous session" : ""))
         // Seed the registration domain so `integer(forKey:)` returns the
         // intended default when the user hasn't explicitly written the
         // key. `@AppStorage` only writes to UserDefaults on user change —
@@ -162,6 +192,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // race into a fortnight of log-reading.
         let onWake: (Notification) -> Void = { [weak self] note in
             guard let self = self else { return }
+            // Every one of the three notifications this closure handles means
+            // the display is awake again.
+            self.displayAsleep = false
             self.activationAllowedAfter = Date().addingTimeInterval(30)
             rdLog("wake/unlock event (\(note.name.rawValue)) — activation suppressed for 30s")
 
@@ -200,6 +233,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wakeObservers.append(dn.addObserver(
             forName: Notification.Name(Self.screenIsUnlockedNotification),
             object: nil, queue: .main, using: onWake))
+
+        // The handshake in `observeLockThenPause` hears only a lock the saver
+        // asked for itself. Lock Now, a hot corner or control-command-Q while
+        // the saver was up went unheard, and the rain kept drawing behind the
+        // lock screen. Display sleep had no handler at all. Both pause, and
+        // the saver stays up: `onWake` locks only when `saverIsUp`, so windows
+        // torn down here would hand a lock-on-dismiss user an unlocked desktop
+        // whenever the macOS lock delay is not immediate.
+        wakeObservers.append(dn.addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.pauseForCover(reason: "com.apple.screenIsLocked")
+        })
+        wakeObservers.append(ws.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.displayAsleep = true
+            self?.pauseForCover(reason: "screensDidSleep")
+        })
+        wakeObservers.append(dn.addObserver(
+            forName: Notification.Name("com.apple.screensaver.didstart"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.nativeScreensaverRunning = true
+            rdLog("com.apple.screensaver.didstart — macOS's own screen saver started")
+        })
+        wakeObservers.append(dn.addObserver(
+            forName: Notification.Name("com.apple.screensaver.didstop"), object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self = self, self.nativeScreensaverRunning else { return }
+            self.nativeScreensaverRunning = false
+            // Idle time kept climbing the whole time it was up, so restart the
+            // countdown rather than let the next tick activate the instant it
+            // ends.
+            self.activationAllowedAfter = Date().addingTimeInterval(self.idleThresholdSeconds)
+            rdLog("com.apple.screensaver.didstop — macOS's own screen saver ended; idle countdown restarted")
+        })
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -284,10 +353,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set while activation is being held back by a locked screen, so the
     /// reason is logged once per lock rather than on every tick.
     private var activationHeldByLock = false
+    /// Mirror `activationHeldByLock`, for the other reasons activation is
+    /// held back. Each logs its reason once, not every second.
+    private var activationHeldByNativeScreensaver = false
+    private var activationHeldByDisplaySleep = false
+    private var activationHeldByAssertion = false
+    /// Latch for the held-off log line in the dismiss branch — the tick runs
+    /// every second and a pointer can travel for several of them.
+    private var dismissHeldUnarmed = false
 
     private func tick() {
         let idle = systemIdleSeconds()
         if windows.isEmpty {
+            // Checked first and unconditionally: this is not the app noticing
+            // something about the world, it is someone having asked not to be
+            // interrupted. No log line: the toggle logs the transition.
+            guard !activationSuspended else { return }
             if idle >= idleThresholdSeconds && Date() >= activationAllowedAfter {
                 // Never start behind a lock screen. loginwindow sits above the
                 // saver level, so nothing would be visible: the app would spin
@@ -309,10 +390,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
                 activationHeldByLock = false
+
+                // Nor on top of macOS's own screen saver, which sits at the
+                // same window level, so there is no telling which is on top.
+                if nativeScreensaverRunning {
+                    if !activationHeldByNativeScreensaver {
+                        rdLog("idle threshold reached but macOS's own screen saver is running — not activating")
+                        activationHeldByNativeScreensaver = true
+                    }
+                    return
+                }
+                activationHeldByNativeScreensaver = false
+
+                // Nor into a display that has gone dark. On a laptop on
+                // battery this is often the timer that fires first.
+                if displayAsleep {
+                    if !activationHeldByDisplaySleep {
+                        rdLog("idle threshold reached but the display is asleep — not activating")
+                        activationHeldByDisplaySleep = true
+                    }
+                    return
+                }
+                activationHeldByDisplaySleep = false
+
+                // Something else is asking macOS to keep the display on: a
+                // video call, a film, a presentation. Idle time says nobody has
+                // touched the keyboard, and that is exactly what watching
+                // something looks like. See `DisplayWake`.
+                if DisplayWake.somethingIsHoldingTheDisplayAwake {
+                    if !activationHeldByAssertion {
+                        rdLog("idle threshold reached but something is holding the display awake — not activating")
+                        activationHeldByAssertion = true
+                    }
+                    // Restart the countdown rather than merely skipping this
+                    // tick. Idle has been climbing all through the call, so
+                    // without this the saver would appear the instant the call
+                    // ended, which is the moment it is least wanted.
+                    activationAllowedAfter = Date().addingTimeInterval(idleThresholdSeconds)
+                    return
+                }
+                if activationHeldByAssertion {
+                    rdLog("display assertion released — idle countdown restarted")
+                    activationHeldByAssertion = false
+                }
+
                 rdLog("idle=\(Int(idle))s ≥ threshold — activating")
                 showWindows()
             }
         } else if idle < 1.0 && Date() >= dismissAllowedAfter {
+            // The windows' own event monitor ignores movement until the pointer
+            // has come to rest, because movement that follows through from the
+            // gesture which STARTED the saver is not a request to end it. This
+            // path has to give the same answer. It polls system idle time, so
+            // it sees that something happened without seeing what.
+            guard windows.allSatisfy(\.dismissArmed) else {
+                if !dismissHeldUnarmed {
+                    rdLog("system idle dropped but the pointer is still moving — holding off")
+                    dismissHeldUnarmed = true
+                }
+                return
+            }
+            dismissHeldUnarmed = false
             rdLog("system idle dropped — dismissing")
             dismissWindows(triggerLock: lockOnDismiss)
         }
@@ -396,8 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // log did for four months. Pause and carry on instead — the outcome is
         // the same as a lock that confirmed, because the screen is locked.
         if LockScreen.screenIsLocked {
-            rdLog("screen already locked before the request — pausing, no handshake needed")
-            pauseAllWindows()
+            pauseForCover(reason: "screen already locked before the request, no handshake needed")
             return
         }
         let center = DistributedNotificationCenter.default()
@@ -409,9 +546,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil, queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            rdLog("screenIsLocked received — pausing animation, windows stay until unlock")
+            // The pausing itself is done by the permanent lock observer in
+            // `observeWakeAndUnlock`, which hears this same notification.
+            // This one only confirms the lock for the safety net below.
             self.cleanupLockObserver()
-            self.pauseAllWindows()
         }
         // Safety net: if no lock notification arrives within 4 seconds
         // (SACLockScreenImmediate failed, loginwindow hung, framework
@@ -427,8 +565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // notification that did not arrive. Those are different facts, and
             // conflating them sent three investigations down the wrong road.
             if LockScreen.screenIsLocked {
-                rdLog("no screenIsLocked in 4s, but the screen IS locked — pausing")
-                self.pauseAllWindows()
+                self.pauseForCover(reason: "no screenIsLocked in 4s, but the screen IS locked")
             } else {
                 rdLog("no screenIsLocked in 4s and the screen is NOT locked — tearing down")
                 self.tearDownWindows()
@@ -436,8 +573,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func pauseAllWindows() {
+    /// Pause the saver windows, once, while something covers them. Several
+    /// observers can hear the same event; the first one pauses and logs.
+    /// There is no resume: a paused saver is only ever dismissed, by the wake
+    /// or unlock path, which locks first if it must.
+    private func pauseForCover(reason: String) {
+        guard !windows.isEmpty, !pausedForCover else { return }
+        pausedForCover = true
         for win in windows { win.pauseAnimation() }
+        rdLog("\(reason) — pausing animation; the saver stays up until dismissed")
     }
 
     private func cleanupLockObserver() {
@@ -459,6 +603,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (non-lock dismiss, post-unlock unlock-observer) and the
         // safety-net timeout in observeLockThenPause.
         lockDismissInProgress = false
+        pausedForCover = false
+        dismissHeldUnarmed = false
         if wallpaperWindows.isEmpty { builtForLayout = nil }
         rdLog("dismissed screensaver windows")
     }
@@ -529,7 +675,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showWallpaperWindows()
         }
         // Same for active screensaver windows.
-        if !windows.isEmpty {
+        // A rebuild reloads the page and starts the rain from scratch. While
+        // paused the saver is covered and only waiting to be dismissed.
+        if !windows.isEmpty, pausedForCover {
+            rdLog("screen layout changed while the saver is paused — not recreating screensaver windows")
+        } else if !windows.isEmpty {
             rdLog("screen layout changed — recreating screensaver windows")
             dismissWindows(triggerLock: false)
             showWindows()
@@ -589,6 +739,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Status menu actions
+
+    /// For the status menu's label and icon to read without owning the key.
+    func isActivationSuspended() -> Bool {
+        activationSuspended
+    }
+
+    /// Flips `activationSuspended`. The Settings toggle writes the same key
+    /// directly (via `@AppStorage`) rather than calling this, but both paths
+    /// post `.activationSuspendedChanged` so the status icon stays correct
+    /// whichever one changed it.
+    func toggleActivationSuspended() {
+        let suspended = !activationSuspended
+        UserDefaults.standard.set(suspended, forKey: "activationSuspended")
+        rdLog(suspended ? "activation suspended from status menu" : "activation resumed from status menu")
+        NotificationCenter.default.post(name: .activationSuspendedChanged, object: nil)
+    }
 
     func activateNowFromMenu() {
         guard windows.isEmpty else { return }

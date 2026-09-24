@@ -160,9 +160,19 @@
     // WebGL animation loop so we don't burn GPU on rain that loginwindow
     // is fully covering. fx.stop() cancels the requestAnimationFrame.
     // No paired resume — the window is torn down on unlock and the page
-    // never sees the lock end. Safe to call before fx is initialised
-    // (e.g. saver triggered + locked inside the image-load window).
+    // never sees the lock end. It can arrive before fx exists (saver
+    // triggered and locked inside the image-load window), so it also sets
+    // `paused`, which the start-up path below checks. Without that the
+    // pause did nothing and the rain started behind the lock screen once
+    // the images arrived.
+    let paused = false;
+    let rotationTimer = null;
     window.rainyDayPause = function() {
+      paused = true;
+      if (rotationTimer !== null) {
+        clearInterval(rotationTimer);
+        rotationTimer = null;
+      }
       if (fx && typeof fx.stop === 'function') {
         fx.stop();
       }
@@ -170,6 +180,7 @@
 
     console.log('Loading ' + sceneSources.length + ' background images…');
     Promise.all(sceneSources.map(loadImage)).then(loaded => {
+      if (paused) return;
       console.log('All ' + loaded.length + ' images loaded; first: ' + loaded[0].naturalWidth + 'x' + loaded[0].naturalHeight);
       scenes = loaded;
       paintImageCover(bctx, scenes[0]);
@@ -191,6 +202,7 @@
       // at Utils.imageResize. Poll for renderer.originalBackground to
       // appear, then do the first resize.
       function waitForFxReady() {
+        if (paused) return;
         if (fx.renderer && fx.renderer.originalBackground) {
           resize();
           startRotation();
@@ -241,7 +253,7 @@
     }
 
     function startRotation() {
-      setInterval(() => {
+      rotationTimer = setInterval(() => {
         const next = (sceneIdx + 1) % scenes.length;
         transitionTo(next);
       }, ROTATE_MS);

@@ -30,7 +30,9 @@ To uninstall: `pkill -f "Rainy Day"` then drag `Rainy Day.app` to the Trash.
 
 Rainy Day is a screensaver-style product, but it ships as a regular `.app` rather than as a `.saver` bundle. The screensaver-bundle path forced a long string of fights with macOS — process suspension, permission churn, multi-instance lifecycle, occlusion edge cases, removed SPIs — none of which add anything for the user. As a regular app it gets out of its own way, and gives us full control over the configurator, hotkeys, and lock-screen integration that a saver bundle can't reach.
 
-It auto-launches at login, hides itself in the background, and brings up a fullscreen rain effect on every display when you've been idle past your configured threshold. Move the mouse or press any key to dismiss.
+It auto-launches at login, hides itself in the background, and brings up a fullscreen rain effect on every display when you've been idle past your configured threshold. Move the mouse or press any key to dismiss. Movement only counts once the pointer has stopped, so the hand that chose **Activate Now** from the menu does not close the saver on its way back.
+
+It stays out of the way when it should. It does not start during a video call, a film or a presentation, which hold the display awake. It does not start into a display that has gone dark, or on top of macOS's own screen saver. And it pauses the moment anything covers it, whether the lock screen (however you locked it) or the display going to sleep, so the rain never runs for nobody. To stop it activating for a while, choose **Suspend** from the menu bar icon; the icon changes to a cloud without rain until you choose **Resume**. **Activate Now** still works while suspended.
 
 ## What you'll see
 
@@ -42,7 +44,7 @@ Eight photographic backgrounds rotate through every five minutes (configurable, 
 
 Click the menu bar icon → **Settings…** for:
 
-- **Activation** — idle timeout (minutes), and a global "Activate now" hotkey
+- **Activation** — a **Suspended** toggle that mirrors the menu's Suspend/Resume, the idle timeout (minutes), and a global "Activate now" hotkey. If one of macOS's own timers ("Start Screen Saver when inactive", or "Turn display off when inactive") is set at or under the idle timeout, an orange note under the idle timeout says which one, because Rainy Day would never get a turn.
 - **On dismiss** — toggle to lock the screen automatically when the saver dismisses
 - **Capture** — global hotkey to save a snapshot of the current rain frame to `~/Pictures/Rainy Day/`
 - **Backgrounds** — scene cycle interval (1–30 minutes) and a **Backgrounds folder** row with an **Open** button
