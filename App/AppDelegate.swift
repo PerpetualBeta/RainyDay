@@ -516,6 +516,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // covers our windows the moment it's up — there's no path
             // by which the desktop becomes visible to the user.
             rdLog("dismiss with lock — pausing on screenIsLocked, teardown deferred to unlock")
+            // Pause now, not when the lock confirms. The lock screen normally
+            // covers us in 0.1 to 0.4s, but under load it has taken over 4s,
+            // and all that time the rain carried on as if the key press had not
+            // been heard. A still frame answers the input at once.
+            pauseForCover(reason: "dismissed, waiting for the lock screen")
             observeLockThenPause()
             LockScreen.lock()
         } else {
@@ -550,6 +555,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // `observeWakeAndUnlock`, which hears this same notification.
             // This one only confirms the lock for the safety net below.
             self.cleanupLockObserver()
+            // The saver paused when it was dismissed, so the permanent
+            // observer logs nothing now. This line keeps the lock's latency
+            // readable in the log.
+            rdLog("screenIsLocked received — the lock screen is up")
         }
         // Safety net: if no lock notification arrives within 4 seconds
         // (SACLockScreenImmediate failed, loginwindow hung, framework

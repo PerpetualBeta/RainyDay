@@ -83,7 +83,7 @@ A **Suspended** toggle that mirrors the menu's Suspend/Resume, the idle timeout 
 
 ### On dismiss
 
-A toggle to lock the screen automatically when the saver dismisses.
+A toggle to lock the screen automatically when the saver dismisses. The rain stops the moment you dismiss it, so you can see it heard you, and the still picture stays until the lock screen covers it.
 
 ### Capture
 
