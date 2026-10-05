@@ -67,7 +67,7 @@ The saver pauses the moment anything covers it, whether the lock screen (however
 
 ### Multiple displays
 
-Each connected display gets its own fullscreen window, with its own rain. Scene rotation is in lockstep across displays.
+Each connected display gets its own fullscreen window, with its own rain. Scene rotation is in lockstep across displays. If a display is connected, disconnected, goes to sleep or changes resolution while the saver is up, the windows are rebuilt for the new layout without the saver ever losing focus, so the change does not lock the Mac.
 
 ## Settings
 
