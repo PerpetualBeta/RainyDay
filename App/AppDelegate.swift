@@ -766,9 +766,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rdLog("screen layout changed while the saver is paused — not recreating screensaver windows")
         } else if !windows.isEmpty {
             rdLog("screen layout changed — recreating screensaver windows")
-            dismissWindows(triggerLock: false)
-            showWindows()
+            replaceWindows()
         }
+    }
+
+    /// Rebuild the saver windows for a new display layout, showing the new
+    /// windows before the old ones go. The app always has a window up, so it
+    /// stays the active app and the hardening stays on throughout.
+    ///
+    /// Until 2026-10-05 a rebuild closed the old windows first. For a moment the
+    /// app had no window, macOS made the next app active, and that deactivation
+    /// arrived after the new windows were up and hardened. The focus-loss
+    /// observer then locked the Mac although nobody had touched it (07:03 that
+    /// day, when a display went to sleep under the saver). The lock was not
+    /// wrong: the other app really was in front of the saver, with the keys.
+    /// Not losing focus at all is the fix, not ignoring the loss.
+    private func replaceWindows() {
+        let old = windows
+        windows.removeAll()
+        dismissHeldUnarmed = false
+        showWindows()
+        // Each old window shows the cursor once, matching the hide it made in
+        // activate(); the new windows have hidden it again, so the count holds.
+        for win in old { win.deactivate() }
+        rdLog("replaced \(old.count) screensaver window(s) with \(windows.count), the new ones shown first")
     }
 
     // MARK: - Animated wallpaper
