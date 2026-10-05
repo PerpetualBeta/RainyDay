@@ -109,7 +109,7 @@ The Wallpaper toggle renders the rain effect as your animated desktop wallpaper 
 
 ## Privacy
 
-- **No telemetry.** No usage reporting, no log file at all unless you explicitly turn one on (`defaults write cc.jorviksoftware.RainyDay debugLogging -bool YES` writes timestamped lifecycle lines to `~/Library/Logs/Rainy Day/rainyday.log`; off by default), no network requests beyond Sparkle's appcast fetch.
+- **No telemetry.** No usage reporting, no log file at all unless you explicitly turn one on (`defaults write cc.jorviksoftware.RainyDay debugLogging -bool YES` writes timestamped lifecycle lines to `~/Library/Logs/Rainy Day/rainyday.log`, rotated at 4 MB; off by default), no network requests beyond Sparkle's appcast fetch.
 - **No camera, microphone, network access.** Backgrounds load from your local Application Support folder; the WebGL rendering is entirely client-side.
 - **No permissions at all.** Not Screen Recording, not Accessibility, nothing. The screen lock is an IPC call into `loginwindow` and the hotkeys are registered with Carbon, neither of which requires anything to be granted. Verified by revoking Accessibility and watching the lock still work.
 
